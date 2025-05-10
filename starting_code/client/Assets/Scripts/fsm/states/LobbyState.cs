@@ -40,10 +40,12 @@ public class LobbyState : ApplicationStateWithView<LobbyView>
      */
     private void onTextEntered(string pText)
     {
-        if (string.IsNullOrEmpty(pText)) return; // Don't send empty messages
+        if (string.IsNullOrEmpty(pText)) return;
         
         ChatMessage msg = new ChatMessage();
         msg.message = pText;
+        msg.sender = "";  // Initialize with empty string instead of leaving null
+        
         fsm.channel.SendMessage(msg); 
         view.ClearInput();
     }
