@@ -62,9 +62,17 @@ namespace server
 		 * Iterate over all members and remove the ones that have issues.
 		 * Return true if any members were removed.
 		 */
-		protected void removeFaultyMembers() 
+		protected bool removeFaultyMembers() 
 		{
-			safeForEach(checkFaultyMember);
+			bool anyRemoved = false;
+			// Use a modified safeForEach that accumulates results
+			for (int i = _members.Count - 1; i >= 0; i--)
+			{
+				if (i >= _members.Count) continue;
+				if (checkFaultyMember(_members[i]))
+					anyRemoved = true;
+			}
+			return anyRemoved;
 		}
 
 		/**
@@ -89,9 +97,14 @@ namespace server
 		/**
 		 * Check if a member is no longer connected or has issues, if so remove it from the room, and close it's connection.
 		 */
-		private void checkFaultyMember(TcpMessageChannel pMember)
+		private bool checkFaultyMember(TcpMessageChannel pMember)
 		{
-			if (!pMember.Connected) removeAndCloseMember(pMember);
+			if (!pMember.Connected) 
+			{
+				removeAndCloseMember(pMember);
+				return true;
+			}
+			return false;
 		}
 
 		/**
@@ -99,11 +112,24 @@ namespace server
 		 */
 		protected void removeAndCloseMember(TcpMessageChannel pMember)
 		{
+			// Get player info for logging
+			string playerInfo = "";
+			try 
+			{
+				var player = _server.GetPlayerInfo(pMember);
+				if (player != null && !string.IsNullOrEmpty(player.name))
+					playerInfo = $" ({player.name})";
+			}
+			catch {}
+			
+			// Remove from room and clean up server-side player info
 			removeMember(pMember);
 			_server.RemovePlayerInfo(pMember);
+			
+			// Close the connection
 			pMember.Close();
 
-			Log.LogInfo("Removed client at " + pMember.GetRemoteEndPoint(), this);
+			Log.LogInfo($"Removed client{playerInfo} at {pMember.GetRemoteEndPoint()}", this);
 		}
 
 		/**

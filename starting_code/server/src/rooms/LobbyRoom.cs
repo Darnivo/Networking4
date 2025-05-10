@@ -17,6 +17,21 @@ namespace server
 		{
 		}
 
+		public override void Update()
+		{
+			// Check if any members were removed due to disconnect
+			bool anyDisconnected = removeFaultyMembers();
+			
+			// If anyone disconnected, update the lobby information
+			if (anyDisconnected)
+			{
+				sendLobbyUpdateCount();
+			}
+			
+			// Continue with normal update
+			receiveAndProcessNetworkMessages();
+		}
+
 		protected override void addMember(TcpMessageChannel pMember)
 		{
 			base.addMember(pMember);
@@ -43,9 +58,25 @@ namespace server
 		 */
 		protected override void removeMember(TcpMessageChannel pMember)
 		{
+			// Get the player's name before removing them
+			string playerName = _server.GetPlayerInfo(pMember).name;
+			
+			// Call the base method to remove the member
 			base.removeMember(pMember);
+			
+			// Remove from ready members list
 			_readyMembers.Remove(pMember);
-
+			
+			// Send a message to all clients that a player has left
+			if (!string.IsNullOrEmpty(playerName))
+			{
+				ChatMessage leaveMsg = new ChatMessage();
+				leaveMsg.sender = "[Server]";
+				leaveMsg.message = $"{playerName} has left the lobby!";
+				sendToAll(leaveMsg);
+			}
+			
+			// Update lobby information
 			sendLobbyUpdateCount();
 		}
 
