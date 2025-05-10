@@ -23,14 +23,28 @@ namespace shared
 		 */
 		public int WhoHasWon()
 		{
-			//this is just an example of a possible win condition, 
-			//but not the 'real' tictactoe win condition.
-			int total = 1;
-			foreach (int cell in board) total *= cell;
-
-			if (total == 1)		return 1;       //1*1*1*1*1*1*1*1*1
-			if (total == 512)	return 2;		//2*2*2*2*2*2*2*2*2
-			return 0;							//noone has one yet
+			// Check rows
+			for (int i = 0; i < 3; i++)
+			{
+				if (board[i*3] != 0 && board[i*3] == board[i*3+1] && board[i*3+1] == board[i*3+2])
+					return board[i*3];
+			}
+			
+			// Check columns
+			for (int i = 0; i < 3; i++)
+			{
+				if (board[i] != 0 && board[i] == board[i+3] && board[i+3] == board[i+6])
+					return board[i];
+			}
+			
+			// Check diagonals
+			if (board[0] != 0 && board[0] == board[4] && board[4] == board[8])
+				return board[0];
+			
+			if (board[2] != 0 && board[2] == board[4] && board[4] == board[6])
+				return board[2];
+			
+			return 0; // No winner yet
 		}
 		
 		public override void Serialize(Packet pPacket)

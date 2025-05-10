@@ -40,10 +40,12 @@ public class LobbyState : ApplicationStateWithView<LobbyView>
      */
     private void onTextEntered(string pText)
     {
+        if (string.IsNullOrEmpty(pText)) return; // Don't send empty messages
+        
         ChatMessage msg = new ChatMessage();
         msg.message = pText;
-        fsm.channel.SendMessage(msg); // Now sends to server
-        view.ClearInput(); 
+        fsm.channel.SendMessage(msg); 
+        view.ClearInput();
     }
 
     /**
@@ -79,8 +81,9 @@ public class LobbyState : ApplicationStateWithView<LobbyView>
 
     private void handleChatMessage(ChatMessage pMessage)
     {
-        //just show the message
-        AddOutput(pMessage.message);
+        // Format and display the chat message
+        string formattedMessage = $"{pMessage.sender}: {pMessage.message}";
+        view.AddOutput(formattedMessage);
     }
 
     private void handleRoomJoinedEvent(RoomJoinedEvent pMessage)
@@ -94,8 +97,14 @@ public class LobbyState : ApplicationStateWithView<LobbyView>
 
     private void handleLobbyInfoUpdate(LobbyInfoUpdate pMessage)
     {
-        view.SetLobbyHeading($"Lobby ({pMessage.memberCount} players)");
-        view.UpdatePlayerList(pMessage.playerNames);
+        // Set the lobby heading with current player count and ready status
+        view.SetLobbyHeading($"Lobby ({pMessage.memberCount} players, {pMessage.readyCount} ready)");
+        
+        // Update the player list display
+        if(pMessage.playerNames != null && pMessage.playerNames.Count > 0)
+        {
+            view.UpdatePlayerList(pMessage.playerNames);
+        }
     }
 
 }

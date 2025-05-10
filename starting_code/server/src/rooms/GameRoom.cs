@@ -23,15 +23,15 @@ namespace server
 		{
 		}
 
-		public void StartGame (TcpMessageChannel pPlayer1, TcpMessageChannel pPlayer2)
+		public void StartGame(TcpMessageChannel pPlayer1, TcpMessageChannel pPlayer2)
 		{
-			if (IsGameInPlay) throw new Exception("Programmer error duuuude.");
+			if (IsGameInPlay) throw new Exception("Game already in progress.");
 
 			IsGameInPlay = true;
 			addMember(pPlayer1);
 			addMember(pPlayer2);
 
-			// Send player names
+			// Send start game message with player names
 			StartGameMessage startMsg = new StartGameMessage();
 			startMsg.player1Name = _server.GetPlayerInfo(pPlayer1).name;
 			startMsg.player2Name = _server.GetPlayerInfo(pPlayer2).name;
@@ -69,35 +69,82 @@ namespace server
 			}
 		}
 
+		// In GameRoom.cs - handleMakeMoveRequest method
 		private void handleMakeMoveRequest(MakeMoveRequest pMessage, TcpMessageChannel pSender)
 		{
-			//we have two players, so index of sender is 0 or 1, which means playerID becomes 1 or 2
+			// Get player ID (1 or 2)
 			int playerID = indexOfMember(pSender) + 1;
-			//make the requested move (0-8) on the board for the player
+			
+			// Check if the move is valid (cell is empty)
+			if (_board.GetBoardData().board[pMessage.move] != 0)
+			{
+				// Invalid move, cell already taken
+				return;
+			}
+			
+			// Make the move
 			_board.MakeMove(pMessage.move, playerID);
-
-			//and send the result of the boardstate back to all clients
+			
+			// Send the updated board to all clients
 			MakeMoveResult makeMoveResult = new MakeMoveResult();
 			makeMoveResult.whoMadeTheMove = playerID;
 			makeMoveResult.boardData = _board.GetBoardData();
 			sendToAll(makeMoveResult);
-
+			
 			// Check win condition
-			if (_board.GetBoardData().WhoHasWon() != 0 || _board.GetBoardData().board.All(cell => cell != 0))
+			int winner = _board.GetBoardData().WhoHasWon();
+			bool isBoardFull = true;
+			
+			// Check if board is full (draw)
+			foreach (int cell in _board.GetBoardData().board)
+			{
+				if (cell == 0)
+				{
+					isBoardFull = false;
+					break;
+				}
+			}
+			
+			// Handle game over conditions
+			if (winner != 0 || isBoardFull)
 			{
 				GameOverMessage gameOver = new GameOverMessage();
-				gameOver.winnerName = _board.GetBoardData().WhoHasWon() == 0 ? "Draw" : $"Player {_board.GetBoardData().WhoHasWon()}";
+				
+				if (winner != 0)
+				{
+					string winnerName = _server.GetPlayerInfo(_members[winner-1]).name;
+					gameOver.winnerName = winnerName;
+				}
+				else if (isBoardFull)
+				{
+					gameOver.winnerName = "Draw - No Winner";
+				}
+				
+				// Send game over message to all players
 				sendToAll(gameOver);
 				
-				// Return to lobby
-				foreach (TcpMessageChannel member in _members.ToList())
+				// Send all players back to lobby
+				TcpMessageChannel[] playersToReturn = _members.ToArray();
+				foreach (TcpMessageChannel player in playersToReturn)
 				{
-					removeMember(member);
-					_server.GetLobbyRoom().AddMember(member);
+					// Create notification
+					ChatMessage notification = new ChatMessage();
+					notification.sender = "[Server]";
+					notification.message = $"Game over! {gameOver.winnerName}";
+					
+					// Remove from game room
+					removeMember(player);
+					
+					// Add to lobby
+					_server.GetLobbyRoom().AddMember(player);
+					
+					// Send notification to the player
+					player.SendMessage(notification);
 				}
+				
+				// Reset game state
 				IsGameInPlay = false;
 			}
 		}
-
 	}
 }

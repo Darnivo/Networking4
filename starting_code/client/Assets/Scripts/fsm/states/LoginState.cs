@@ -87,13 +87,16 @@ public class LoginState : ApplicationStateWithView<LoginView>
 
     private void handlePlayerJoinResponse(PlayerJoinResponse pMessage)
     {
-        //Dont do anything with this info at the moment, just leave it to the RoomJoinedEvent
-        //We could handle duplicate name messages, get player info etc here
-        /*
-        if (pMessage.result == PlayerJoinResponse.State.ACCEPTED)
+        // Handle duplicate name response
+        if (pMessage.result == PlayerJoinResponse.RequestResult.DUPLICATE_NAME)
         {
+            view.TextConnectResults = "Username already in use. Please choose another name.";
+            // Don't change state if name is duplicate
+            return;
         }
-        */
+        
+        // If we get here, that means the player was accepted
+        Log.LogInfo("Player join accepted...", this);
     }
 
     private void handleRoomJoinedEvent (RoomJoinedEvent pMessage)

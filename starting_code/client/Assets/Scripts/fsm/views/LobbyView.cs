@@ -92,7 +92,7 @@ public class LobbyView : View
 
     public void UpdatePlayerList(List<string> playerNames)
     {
-        _textPlayerList.text = "Players:\n" + string.Join("\n", playerNames);
+        _textPlayerList.text = "Players: " + string.Join(", ", playerNames);
     }
 
 }

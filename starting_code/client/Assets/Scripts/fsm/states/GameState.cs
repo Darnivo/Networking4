@@ -39,22 +39,29 @@ public class GameState : ApplicationStateWithView<GameView>
 
     protected override void handleNetworkMessage(ASerializable pMessage)
     {
-        if (pMessage is StartGameMessage startMsg)
+        if (pMessage is StartGameMessage)
         {
-            view.playerLabel1.text = $"P1: {startMsg.player1Name}";
-            view.playerLabel2.text = $"P2: {startMsg.player2Name}";
+            StartGameMessage startMsg = pMessage as StartGameMessage;
+            // Display player names
+            view.playerLabel1.text = $"Player 1: {startMsg.player1Name}";
+            view.playerLabel2.text = $"Player 2: {startMsg.player2Name}";
         }
-        else if (pMessage is GameOverMessage gameOver)
-        {
-            // Return to lobby and show result
-            fsm.ChangeState<LobbyState>();
-            LobbyState lobbyState = fsm.GetComponent<LobbyState>();
-            lobbyState.AddOutput($"[Game Over] Winner: {gameOver.winnerName}");
-        }
-        
-        if (pMessage is MakeMoveResult)
+        else if (pMessage is MakeMoveResult)
         {
             handleMakeMoveResult(pMessage as MakeMoveResult);
+        }
+        else if (pMessage is GameOverMessage)
+        {
+            GameOverMessage gameOver = pMessage as GameOverMessage;
+            // Game is over, we'll get a RoomJoinedEvent to move back to lobby
+        }
+        else if (pMessage is RoomJoinedEvent)
+        {
+            RoomJoinedEvent roomEvent = pMessage as RoomJoinedEvent;
+            if (roomEvent.room == RoomJoinedEvent.Room.LOBBY_ROOM)
+            {
+                fsm.ChangeState<LobbyState>();
+            }
         }
     }
 

@@ -24,14 +24,17 @@ namespace server
 			// Notify the client they joined the LOBBY_ROOM
 			RoomJoinedEvent roomJoinedEvent = new RoomJoinedEvent();
 			roomJoinedEvent.room = RoomJoinedEvent.Room.LOBBY_ROOM;
-			pMember.SendMessage(roomJoinedEvent); // Add this line
+			pMember.SendMessage(roomJoinedEvent);
 
-			// Existing code for chat message
+			// Announce new player in chat
 			string playerName = _server.GetPlayerInfo(pMember).name;
 			ChatMessage joinMsg = new ChatMessage();
 			joinMsg.sender = "[Server]";
-			joinMsg.message = $"{playerName} has joined the server!";
+			joinMsg.message = $"{playerName} has joined the lobby!";
 			sendToAll(joinMsg);
+			
+			// Send updated lobby info to all clients
+			sendLobbyUpdateCount();
 		}
 
 		/**
@@ -50,11 +53,15 @@ namespace server
 		{
 			if (pMessage is ChatMessage chatMsg)
 			{
-				chatMsg.sender = _server.GetPlayerInfo(pSender).name; // Attach sender
+				// Set the sender name from the player info
+				chatMsg.sender = _server.GetPlayerInfo(pSender).name;
+				// Send the message to all clients
 				sendToAll(chatMsg);
 			}
-			
-			if (pMessage is ChangeReadyStatusRequest) handleReadyNotification(pMessage as ChangeReadyStatusRequest, pSender);
+			else if (pMessage is ChangeReadyStatusRequest)
+			{
+				handleReadyNotification(pMessage as ChangeReadyStatusRequest, pSender);
+			}
 		}
 
 		private void handleReadyNotification(ChangeReadyStatusRequest pReadyNotification, TcpMessageChannel pSender)
@@ -70,13 +77,25 @@ namespace server
 			}
 
 			//do we have enough people for a game and is there no game running yet?
-			if (_readyMembers.Count >= 2 && !_server.GetGameRoom().IsGameInPlay)
+			if (_readyMembers.Count >= 2)
 			{
 				TcpMessageChannel player1 = _readyMembers[0];
 				TcpMessageChannel player2 = _readyMembers[1];
+				
+				// Remove from ready members
+				_readyMembers.Remove(player1);
+				_readyMembers.Remove(player2);
+				
+				// Remove from lobby
 				removeMember(player1);
 				removeMember(player2);
-				_server.GetGameRoom().StartGame(player1, player2);
+				
+				// Create new game room and start game
+				GameRoom gameRoom = _server.CreateNewGame();
+                gameRoom.StartGame(player1, player2);
+				
+				// Log that a new game was created
+				Log.LogInfo("New game started!", this, ConsoleColor.Green);
 			}
 
 			//(un)ready-ing / starting a game changes the lobby/ready count so send out an update
@@ -89,7 +108,14 @@ namespace server
 			LobbyInfoUpdate msg = new LobbyInfoUpdate();
 			msg.memberCount = memberCount;
 			msg.readyCount = _readyMembers.Count;
-			msg.playerNames = _members.Select(m => _server.GetPlayerInfo(m).name).ToList(); // Populate names
+			
+			// Add all player names to the update
+			msg.playerNames = new List<string>();
+			foreach (TcpMessageChannel member in _members)
+			{
+				msg.playerNames.Add(_server.GetPlayerInfo(member).name);
+			}
+			
 			sendToAll(msg);
 		}
 

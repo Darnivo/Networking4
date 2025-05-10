@@ -34,6 +34,7 @@ namespace server {
 		private LoginRoom _loginRoom;	//this is the room every new user joins
 		private LobbyRoom _lobbyRoom;	//this is the room a user moves to after a successful 'login'
 		private GameRoom _gameRoom;		//this is the room a user moves to when a game is succesfully started
+		private List<GameRoom> _gameRooms = new List<GameRoom>();
 
 		//stores additional info for a player
 		private Dictionary<TcpMessageChannel, PlayerInfo> _playerInfo = new Dictionary<TcpMessageChannel, PlayerInfo>();
@@ -75,6 +76,11 @@ namespace server {
 				_lobbyRoom.Update();
 				_gameRoom.Update();
 
+				foreach (GameRoom game in _gameRooms.ToList())
+				{
+					game.Update();
+				}
+
 				Thread.Sleep(100);
 			}
 
@@ -115,6 +121,13 @@ namespace server {
 		public void RemovePlayerInfo (TcpMessageChannel pClient)
 		{
 			_playerInfo.Remove(pClient);
+		}
+
+		public GameRoom CreateNewGame()
+		{
+			GameRoom newGame = new GameRoom(this);
+			_gameRooms.Add(newGame);
+			return newGame;
 		}
 
 	}
