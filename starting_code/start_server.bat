@@ -1,0 +1,1 @@
+start server\bin\Release\net8.0\server.exe

@@ -1,0 +1,10 @@
+D:\Saxion\Networking\A4_flic_flac_flo\Networking4\starting_code\shared\bin\Release\netstandard2.1\shared.deps.json
+D:\Saxion\Networking\A4_flic_flac_flo\Networking4\starting_code\shared\bin\Release\netstandard2.1\shared.dll
+D:\Saxion\Networking\A4_flic_flac_flo\Networking4\starting_code\shared\bin\Release\netstandard2.1\shared.pdb
+D:\Saxion\Networking\A4_flic_flac_flo\Networking4\starting_code\shared\obj\Release\netstandard2.1\shared.GeneratedMSBuildEditorConfig.editorconfig
+D:\Saxion\Networking\A4_flic_flac_flo\Networking4\starting_code\shared\obj\Release\netstandard2.1\shared.AssemblyInfoInputs.cache
+D:\Saxion\Networking\A4_flic_flac_flo\Networking4\starting_code\shared\obj\Release\netstandard2.1\shared.AssemblyInfo.cs
+D:\Saxion\Networking\A4_flic_flac_flo\Networking4\starting_code\shared\obj\Release\netstandard2.1\shared.csproj.CoreCompileInputs.cache
+D:\Saxion\Networking\A4_flic_flac_flo\Networking4\starting_code\shared\obj\Release\netstandard2.1\shared.sourcelink.json
+D:\Saxion\Networking\A4_flic_flac_flo\Networking4\starting_code\shared\obj\Release\netstandard2.1\shared.dll
+D:\Saxion\Networking\A4_flic_flac_flo\Networking4\starting_code\shared\obj\Release\netstandard2.1\shared.pdb
