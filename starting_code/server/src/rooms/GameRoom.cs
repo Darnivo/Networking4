@@ -30,6 +30,12 @@ namespace server
 			IsGameInPlay = true;
 			addMember(pPlayer1);
 			addMember(pPlayer2);
+
+			// Send player names
+			StartGameMessage startMsg = new StartGameMessage();
+			startMsg.player1Name = _server.GetPlayerInfo(pPlayer1).name;
+			startMsg.player2Name = _server.GetPlayerInfo(pPlayer2).name;
+			sendToAll(startMsg);
 		}
 
 		protected override void addMember(TcpMessageChannel pMember)
@@ -75,6 +81,22 @@ namespace server
 			makeMoveResult.whoMadeTheMove = playerID;
 			makeMoveResult.boardData = _board.GetBoardData();
 			sendToAll(makeMoveResult);
+
+			// Check win condition
+			if (_board.GetBoardData().WhoHasWon() != 0 || _board.GetBoardData().board.All(cell => cell != 0))
+			{
+				GameOverMessage gameOver = new GameOverMessage();
+				gameOver.winnerName = _board.GetBoardData().WhoHasWon() == 0 ? "Draw" : $"Player {_board.GetBoardData().WhoHasWon()}";
+				sendToAll(gameOver);
+				
+				// Return to lobby
+				foreach (TcpMessageChannel member in _members.ToList())
+				{
+					removeMember(member);
+					_server.GetLobbyRoom().AddMember(member);
+				}
+				IsGameInPlay = false;
+			}
 		}
 
 	}

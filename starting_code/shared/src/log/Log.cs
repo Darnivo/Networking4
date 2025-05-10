@@ -26,7 +26,7 @@ namespace shared
          * Log an object (using it's ToString method), and caller class name to the Console, optionally using a specific color).
          * [CallerMemberName] is automatically filled in by the compiler.
          */
-        [Conditional("DEBUG")]
+        // [Conditional("DEBUG")]
         public static void LogInfo(object pInfo, object pCaller, ConsoleColor? pColor = null, [CallerMemberName]string pMemberName = "")
         {
             LogInfo(pInfo, pCaller.GetType(), pColor, pMemberName);
@@ -36,7 +36,7 @@ namespace shared
          * Log an object (using it's ToString method), and caller class name to the Console, optionally using a specific color).
          * [CallerMemberName] is automatically filled in by the compiler.
          */
-        [Conditional("DEBUG")]
+        // [Conditional("DEBUG")]
         public static void LogInfo(object pInfo, Type pType, ConsoleColor? pColor = null, [CallerMemberName]string pMemberName = "")
         {
             if (!enabled) return;
@@ -47,7 +47,7 @@ namespace shared
             if (pColor != null) _colors.Pop();
         }
 
-        [Conditional("DEBUG")]
+        // [Conditional("DEBUG")]
         /**
          * Ensures all the next line are using the given color, until that color is popped again.
          */
@@ -57,7 +57,7 @@ namespace shared
             _colors.Push(pForegroundColor);
         }
 
-        [Conditional("DEBUG")]
+        // [Conditional("DEBUG")]
         /**
          * Pop a color from the color stack so we revert to the previous color on the stack
          */
@@ -66,7 +66,7 @@ namespace shared
             _colors.Pop();
         }
 
-        [Conditional("DEBUG")]
+        // [Conditional("DEBUG")]
         private static void setConsoleColor(ConsoleColor pConsoleColor)
         {
             if (pConsoleColor != _lastColor)

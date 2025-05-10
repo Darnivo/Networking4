@@ -1,3 +1,3 @@
-start build\MiniTown.exe
+start build\FlicFlacFlo.exe
 timeout /t 3 /nobreak
-start build\MiniTown.exe
+start build\FlicFlacFlo.exe

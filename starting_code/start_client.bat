@@ -1,1 +1,1 @@
-start build\MiniTown.exe
+start build\FlicFlacFlo.exe

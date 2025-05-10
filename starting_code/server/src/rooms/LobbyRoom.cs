@@ -21,18 +21,17 @@ namespace server
 		{
 			base.addMember(pMember);
 
-			//tell the member it has joined the lobby
+			// Notify the client they joined the LOBBY_ROOM
 			RoomJoinedEvent roomJoinedEvent = new RoomJoinedEvent();
 			roomJoinedEvent.room = RoomJoinedEvent.Room.LOBBY_ROOM;
-			pMember.SendMessage(roomJoinedEvent);
+			pMember.SendMessage(roomJoinedEvent); // Add this line
 
-			//print some info in the lobby (can be made more applicable to the current member that joined)
-			ChatMessage simpleMessage = new ChatMessage();
-			simpleMessage.message = "Client 'John Doe' has joined the lobby!";
-			pMember.SendMessage(simpleMessage);
-
-			//send information to all clients that the lobby count has changed
-			sendLobbyUpdateCount();
+			// Existing code for chat message
+			string playerName = _server.GetPlayerInfo(pMember).name;
+			ChatMessage joinMsg = new ChatMessage();
+			joinMsg.sender = "[Server]";
+			joinMsg.message = $"{playerName} has joined the server!";
+			sendToAll(joinMsg);
 		}
 
 		/**
@@ -49,6 +48,12 @@ namespace server
 
 		protected override void handleNetworkMessage(ASerializable pMessage, TcpMessageChannel pSender)
 		{
+			if (pMessage is ChatMessage chatMsg)
+			{
+				chatMsg.sender = _server.GetPlayerInfo(pSender).name; // Attach sender
+				sendToAll(chatMsg);
+			}
+			
 			if (pMessage is ChangeReadyStatusRequest) handleReadyNotification(pMessage as ChangeReadyStatusRequest, pSender);
 		}
 
@@ -81,10 +86,11 @@ namespace server
 
 		private void sendLobbyUpdateCount()
 		{
-			LobbyInfoUpdate lobbyInfoMessage = new LobbyInfoUpdate();
-			lobbyInfoMessage.memberCount = memberCount;
-			lobbyInfoMessage.readyCount = _readyMembers.Count;
-			sendToAll(lobbyInfoMessage);
+			LobbyInfoUpdate msg = new LobbyInfoUpdate();
+			msg.memberCount = memberCount;
+			msg.readyCount = _readyMembers.Count;
+			msg.playerNames = _members.Select(m => _server.GetPlayerInfo(m).name).ToList(); // Populate names
+			sendToAll(msg);
 		}
 
 	}

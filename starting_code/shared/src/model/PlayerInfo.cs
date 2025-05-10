@@ -6,5 +6,6 @@
      */
     public class PlayerInfo 
     {
+        public string name { get; set; }
     }
 }

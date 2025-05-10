@@ -2,6 +2,7 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using System.Collections.Generic;
 
 /**
  * Wraps all elements and functionality required for the LobbyView.
@@ -14,6 +15,8 @@ public class LobbyView : View
     [SerializeField] private Text _textOutput = null;
     [SerializeField] private ScrollRect _scrollRect = null;
     [SerializeField] private Toggle _toggleReady = null;
+
+    [SerializeField] private TMP_Text _textPlayerList = null;
 
     private bool _focusedRequested = false;     //weird unity stuff as usual ;)
     private bool _scrollRequested = false;      //weird unity stuff as usual ;)
@@ -85,6 +88,11 @@ public class LobbyView : View
     public void SetReadyToggle (bool pValue)
     {
         _toggleReady.SetIsOnWithoutNotify(pValue);
+    }
+
+    public void UpdatePlayerList(List<string> playerNames)
+    {
+        _textPlayerList.text = "Players:\n" + string.Join("\n", playerNames);
     }
 
 }

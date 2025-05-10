@@ -40,9 +40,10 @@ public class LobbyState : ApplicationStateWithView<LobbyView>
      */
     private void onTextEntered(string pText)
     {
-        view.ClearInput();
-
-        addOutput("(noone else will see this because I broke the chat on purpose):"+pText);        
+        ChatMessage msg = new ChatMessage();
+        msg.message = pText;
+        fsm.channel.SendMessage(msg); // Now sends to server
+        view.ClearInput(); 
     }
 
     /**
@@ -55,7 +56,7 @@ public class LobbyState : ApplicationStateWithView<LobbyView>
         fsm.channel.SendMessage(msg);
     }
 
-    private void addOutput(string pInfo)
+    public void AddOutput(string pInfo)
     {
         view.AddOutput(pInfo);
     }
@@ -79,7 +80,7 @@ public class LobbyState : ApplicationStateWithView<LobbyView>
     private void handleChatMessage(ChatMessage pMessage)
     {
         //just show the message
-        addOutput(pMessage.message);
+        AddOutput(pMessage.message);
     }
 
     private void handleRoomJoinedEvent(RoomJoinedEvent pMessage)
@@ -93,8 +94,8 @@ public class LobbyState : ApplicationStateWithView<LobbyView>
 
     private void handleLobbyInfoUpdate(LobbyInfoUpdate pMessage)
     {
-        //update the lobby heading
-        view.SetLobbyHeading($"Welcome to the Lobby ({pMessage.memberCount} people, {pMessage.readyCount} ready)");
+        view.SetLobbyHeading($"Lobby ({pMessage.memberCount} players)");
+        view.UpdatePlayerList(pMessage.playerNames);
     }
 
 }

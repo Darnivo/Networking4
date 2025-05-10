@@ -6,7 +6,7 @@
      */
     public class PlayerJoinResponse : ASerializable
     {
-        public enum RequestResult { ACCEPTED }; //can add different result states if you want
+        public enum RequestResult { ACCEPTED, DUPLICATE_NAME }; //can add different result states if you want
         public RequestResult result;
 
         public override void Serialize(Packet pPacket)

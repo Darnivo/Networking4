@@ -19,7 +19,7 @@ namespace server
 		//allows all rooms to access the server they are a part of so they can request access to other rooms, client info etc
 		protected TCPGameServer _server { private set; get; }
 		//all members of this room (we identify them by their message channel)
-		private List<TcpMessageChannel> _members;
+		protected List<TcpMessageChannel> _members;
 
 		/**
 		 * Create a room with an empty member list and reference to the server instance they are a part of.

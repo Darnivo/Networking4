@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 
 namespace shared
@@ -43,9 +44,15 @@ namespace shared
 			pSerializable.Serialize(this); 
 		}
 
-		/// READ METHODS
+        public void Write(List<string> pList)
+        {
+            writer.Write(pList.Count); // Write list size first
+            foreach (string item in pList) writer.Write(item); // Write each string
+        }
 
-		public int ReadInt() { return reader.ReadInt32(); }
+        /// READ METHODS
+
+        public int ReadInt() { return reader.ReadInt32(); }
 		public string ReadString() { return reader.ReadString(); }
 		public bool ReadBool() { return reader.ReadBoolean(); }
 
@@ -59,10 +66,18 @@ namespace shared
 			return obj;
 		}
 
-		/**
+        public List<string> ReadStringList()
+        {
+            List<string> list = new List<string>();
+            int count = reader.ReadInt32(); // Read list size
+            for (int i = 0; i < count; i++) list.Add(reader.ReadString()); // Read each string
+            return list;
+        }
+
+        /**
 		 * Convenience method to read AND cast an object in one go.
 		 */
-		public T Read<T>() where T:ASerializable
+        public T Read<T>() where T:ASerializable
 		{
 			return (T)ReadObject();
 		}

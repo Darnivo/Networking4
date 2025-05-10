@@ -48,6 +48,24 @@ namespace server
 		 */
 		private void handlePlayerJoinRequest (PlayerJoinRequest pMessage, TcpMessageChannel pSender)
 		{
+
+			// Check for duplicate name
+			bool nameExists = _server.GetPlayerInfo(info => info.name == pMessage.name).Count > 0;
+			
+			if (nameExists)
+			{
+				PlayerJoinResponse response = new PlayerJoinResponse();
+				response.result = PlayerJoinResponse.RequestResult.DUPLICATE_NAME;
+				pSender.SendMessage(response);
+				removeAndCloseMember(pSender);
+				return;
+			}
+
+			// Store name and proceed
+			PlayerInfo playerInfo = _server.GetPlayerInfo(pSender);
+			playerInfo.name = pMessage.name;
+
+			// player is accepted
 			Log.LogInfo("Moving new client to accepted...", this);
 
 			PlayerJoinResponse playerJoinResponse = new PlayerJoinResponse();
