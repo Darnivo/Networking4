@@ -54,6 +54,7 @@ namespace server
 		 */
 		public virtual void Update()
 		{
+			sendHeartbeats();
 			removeFaultyMembers();
 			receiveAndProcessNetworkMessages();
 		}
@@ -99,8 +100,18 @@ namespace server
 		 */
 		private bool checkFaultyMember(TcpMessageChannel pMember)
 		{
-			if (!pMember.Connected) 
+			try
 			{
+				if (!pMember.IsConnected())
+				{
+					Log.LogInfo("Client disconnected, removing from room", this);
+					removeAndCloseMember(pMember);
+					return true;
+				}
+			}
+			catch (Exception e)
+			{
+				Log.LogInfo("Exception checking connection: " + e.Message, this);
 				removeAndCloseMember(pMember);
 				return true;
 			}
@@ -161,6 +172,64 @@ namespace server
 			foreach (TcpMessageChannel member in _members)
 			{
 				member.SendMessage(pMessage);
+			}
+		}
+
+		protected void sendHeartbeats()
+		{
+			for (int i = _members.Count - 1; i >= 0; i--)
+			{
+				if (i >= _members.Count) continue;
+				
+				TcpMessageChannel member = _members[i];
+				PlayerInfo playerInfo = _server.GetPlayerInfo(member);
+				
+				// If no heartbeat is pending and it's been more than 5 seconds since the last one
+				if (!playerInfo.heartbeatPending && (DateTime.Now - playerInfo.lastHeartbeatTime).TotalSeconds > 5)
+				{
+					try
+					{
+						HeartbeatMessage heartbeat = new HeartbeatMessage();
+						member.SendMessage(heartbeat);
+						playerInfo.heartbeatPending = true;
+					}
+					catch (Exception e)
+					{
+						Log.LogInfo("Failed to send heartbeat: " + e.Message, this);
+						removeAndCloseMember(member);
+					}
+				}
+				
+				// If a heartbeat has been pending for more than 10 seconds, the client is considered disconnected
+				if (playerInfo.heartbeatPending && (DateTime.Now - playerInfo.lastHeartbeatTime).TotalSeconds > 10)
+				{
+					Log.LogInfo("Heartbeat timeout detected", this);
+					removeAndCloseMember(member);
+				}
+			}
+		}
+
+		public virtual void CheckConnections()
+		{
+			// Force a thorough check of all members for disconnections
+			for (int i = _members.Count - 1; i >= 0; i--)
+			{
+				if (i < _members.Count) // Safety check
+				{
+					try
+					{
+						TcpMessageChannel member = _members[i];
+						if (!member.IsConnected())
+						{
+							Log.LogInfo("CheckConnections found disconnected client", this);
+							removeAndCloseMember(member);
+						}
+					}
+					catch (Exception e)
+					{
+						Log.LogInfo("Exception in CheckConnections: " + e.Message, this);
+					}
+				}
 			}
 		}
 

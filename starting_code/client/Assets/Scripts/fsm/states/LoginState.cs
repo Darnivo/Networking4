@@ -80,8 +80,13 @@ public class LoginState : ApplicationStateWithView<LoginView>
     
     protected override void handleNetworkMessage(ASerializable pMessage)
     {
-        if (pMessage is PlayerJoinResponse) handlePlayerJoinResponse (pMessage as PlayerJoinResponse);
-        else if (pMessage is RoomJoinedEvent) handleRoomJoinedEvent (pMessage as RoomJoinedEvent);
+        if (pMessage is HeartbeatMessage)
+        {
+            HeartbeatResponse response = new HeartbeatResponse();
+            fsm.channel.SendMessage(response);
+        }
+        else if (pMessage is PlayerJoinResponse) handlePlayerJoinResponse(pMessage as PlayerJoinResponse);
+        else if (pMessage is RoomJoinedEvent) handleRoomJoinedEvent(pMessage as RoomJoinedEvent);
     }
     
 

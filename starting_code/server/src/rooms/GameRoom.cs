@@ -63,7 +63,13 @@ namespace server
 
 		protected override void handleNetworkMessage(ASerializable pMessage, TcpMessageChannel pSender)
 		{
-			if (pMessage is MakeMoveRequest)
+			if (pMessage is HeartbeatResponse)
+			{
+				PlayerInfo playerInfo = _server.GetPlayerInfo(pSender);
+				playerInfo.lastHeartbeatTime = DateTime.Now;
+				playerInfo.heartbeatPending = false;
+			}
+			else if (pMessage is MakeMoveRequest)
 			{
 				handleMakeMoveRequest(pMessage as MakeMoveRequest, pSender);
 			}

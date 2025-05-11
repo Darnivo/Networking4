@@ -76,7 +76,12 @@ public class LobbyState : ApplicationStateWithView<LobbyView>
     
     protected override void handleNetworkMessage(ASerializable pMessage)
     {
-        if (pMessage is ChatMessage) handleChatMessage(pMessage as ChatMessage);
+        if (pMessage is HeartbeatMessage)
+        {
+            HeartbeatResponse response = new HeartbeatResponse();
+            fsm.channel.SendMessage(response);
+        }
+        else if (pMessage is ChatMessage) handleChatMessage(pMessage as ChatMessage);
         else if (pMessage is RoomJoinedEvent) handleRoomJoinedEvent(pMessage as RoomJoinedEvent);
         else if (pMessage is LobbyInfoUpdate) handleLobbyInfoUpdate(pMessage as LobbyInfoUpdate);
     }

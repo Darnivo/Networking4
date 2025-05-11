@@ -30,15 +30,19 @@ namespace server
 
 		protected override void handleNetworkMessage(ASerializable pMessage, TcpMessageChannel pSender)
 		{
-			if (pMessage is PlayerJoinRequest)
+			if (pMessage is HeartbeatResponse)
+			{
+				PlayerInfo playerInfo = _server.GetPlayerInfo(pSender);
+				playerInfo.lastHeartbeatTime = DateTime.Now;
+				playerInfo.heartbeatPending = false;
+			}
+			else if (pMessage is PlayerJoinRequest)
 			{
 				handlePlayerJoinRequest(pMessage as PlayerJoinRequest, pSender);
 			}
 			else //if member sends something else than a PlayerJoinRequest
 			{
 				Log.LogInfo("Declining client, auth request not understood", this);
-
-				//don't provide info back to the member on what it is we expect, just close and remove
 				removeAndCloseMember(pSender);
 			}
 		}
@@ -46,9 +50,11 @@ namespace server
 		/**
 		 * Tell the client he is accepted and move the client to the lobby room.
 		 */
-		private void handlePlayerJoinRequest (PlayerJoinRequest pMessage, TcpMessageChannel pSender)
+		private void handlePlayerJoinRequest(PlayerJoinRequest pMessage, TcpMessageChannel pSender)
 		{
-
+			// First, ensure all disconnected clients are removed
+			_server.CleanupInactivePlayerInfo();
+			
 			// Check for duplicate name
 			bool nameExists = _server.GetPlayerInfo(info => info.name == pMessage.name).Count > 0;
 			
@@ -57,7 +63,6 @@ namespace server
 				PlayerJoinResponse response = new PlayerJoinResponse();
 				response.result = PlayerJoinResponse.RequestResult.DUPLICATE_NAME;
 				pSender.SendMessage(response);
-				removeAndCloseMember(pSender);
 				return;
 			}
 

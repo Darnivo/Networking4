@@ -1,4 +1,6 @@
-﻿namespace shared
+﻿using System;
+
+namespace shared
 {
     /**
      * Empty placeholder class for the PlayerInfo object which is being tracked for each client by the server.
@@ -7,5 +9,7 @@
     public class PlayerInfo 
     {
         public string name { get; set; }
+        public DateTime lastHeartbeatTime { get; set; } = DateTime.Now;
+        public bool heartbeatPending { get; set; } = false;
     }
 }

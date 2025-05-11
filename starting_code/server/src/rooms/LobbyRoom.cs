@@ -19,17 +19,29 @@ namespace server
 
 		public override void Update()
 		{
-			// Check if any members were removed due to disconnect
-			bool anyDisconnected = removeFaultyMembers();
-			
-			// If anyone disconnected, update the lobby information
-			if (anyDisconnected)
+			// Actively check all members
+			for (int i = _members.Count - 1; i >= 0; i--)
 			{
-				sendLobbyUpdateCount();
+				if (i < _members.Count) // Safety check
+				{
+					try
+					{
+						TcpMessageChannel member = _members[i];
+						if (!member.IsConnected())
+						{
+							Log.LogInfo("Detected disconnected client in lobby", this);
+							removeAndCloseMember(member);
+						}
+					}
+					catch (Exception e)
+					{
+						Log.LogInfo("Exception in lobby update: " + e.Message, this);
+					}
+				}
 			}
 			
 			// Continue with normal update
-			receiveAndProcessNetworkMessages();
+			base.Update();
 		}
 
 		protected override void addMember(TcpMessageChannel pMember)
@@ -82,7 +94,13 @@ namespace server
 
 		protected override void handleNetworkMessage(ASerializable pMessage, TcpMessageChannel pSender)
 		{
-			if (pMessage is ChatMessage chatMsg)
+			if (pMessage is HeartbeatResponse)
+			{
+				PlayerInfo playerInfo = _server.GetPlayerInfo(pSender);
+				playerInfo.lastHeartbeatTime = DateTime.Now;
+				playerInfo.heartbeatPending = false;
+			}
+			else if (pMessage is ChatMessage chatMsg)
 			{
 				// Set the sender name from the player info
 				chatMsg.sender = _server.GetPlayerInfo(pSender).name;

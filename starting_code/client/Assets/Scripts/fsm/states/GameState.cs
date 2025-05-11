@@ -39,7 +39,12 @@ public class GameState : ApplicationStateWithView<GameView>
 
     protected override void handleNetworkMessage(ASerializable pMessage)
     {
-        if (pMessage is StartGameMessage)
+        if (pMessage is HeartbeatMessage)
+        {
+            HeartbeatResponse response = new HeartbeatResponse();
+            fsm.channel.SendMessage(response);
+        }
+        else if (pMessage is StartGameMessage)
         {
             StartGameMessage startMsg = pMessage as StartGameMessage;
             // Display player names

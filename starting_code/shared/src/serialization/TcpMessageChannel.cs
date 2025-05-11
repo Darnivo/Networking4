@@ -196,5 +196,30 @@ namespace shared {
             }
         }
 
+        public bool IsConnected()
+        {
+            try
+            {
+                if (_client == null || !_client.Connected)
+                    return false;
+
+                // Check if client is still connected by sending 1-byte
+                if (_client.Client.Poll(0, SelectMode.SelectRead))
+                {
+                    byte[] buff = new byte[1];
+                    if (_client.Client.Receive(buff, SocketFlags.Peek) == 0)
+                    {
+                        // Client disconnected
+                        return false;
+                    }
+                }
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
     }
 }

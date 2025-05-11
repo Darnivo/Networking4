@@ -52,14 +52,14 @@ namespace server {
 			Log.LogInfo("Starting server on port 55555", this, ConsoleColor.Gray);
 
 			//start listening for incoming connections (with max 50 in the queue)
-			//we allow for a lot of incoming connections, so we can handle them
-			//and tell them whether we will accept them or not instead of bluntly declining them
 			TcpListener listener = new TcpListener(IPAddress.Any, 55555);
 			listener.Start(50);
 
+			int disconnectCheckCounter = 0;
+			
 			while (true)
 			{
-				//check for new members	
+				//check for new members    
 				if (listener.Pending())
 				{
 					//get the waiting client
@@ -69,6 +69,23 @@ namespace server {
 					TcpMessageChannel channel = new TcpMessageChannel(client);
 					//and add it to the login room for further 'processing'
 					_loginRoom.AddMember(channel);
+				}
+
+				// Periodically check for disconnected clients
+				disconnectCheckCounter++;
+				if (disconnectCheckCounter >= 20) // Check every ~1 second (20 * 50ms sleep)
+				{
+					disconnectCheckCounter = 0;
+					
+					// Force all rooms to check connections
+					_loginRoom.CheckConnections();
+					_lobbyRoom.CheckConnections();
+					_gameRoom.CheckConnections();
+					
+					foreach (GameRoom game in _gameRooms.ToList())
+					{
+						game.CheckConnections();
+					}
 				}
 
 				//now update every single room
@@ -81,11 +98,10 @@ namespace server {
 					game.Update();
 				}
 
-				Thread.Sleep(100);
+				Thread.Sleep(50);
 			}
-
 		}
-		
+
 		//provide access to the different rooms on the server 
 		public LoginRoom GetLoginRoom() { return _loginRoom; }
 		public LobbyRoom GetLobbyRoom() { return _lobbyRoom; }
@@ -128,6 +144,32 @@ namespace server {
 			GameRoom newGame = new GameRoom(this);
 			_gameRooms.Add(newGame);
 			return newGame;
+		}
+
+		public void CleanupInactivePlayerInfo()
+		{
+			List<TcpMessageChannel> toRemove = new List<TcpMessageChannel>();
+			
+			foreach (var client in _playerInfo.Keys)
+			{
+				try
+				{
+					if (!client.IsConnected())
+					{
+						toRemove.Add(client);
+					}
+				}
+				catch
+				{
+					toRemove.Add(client);
+				}
+			}
+			
+			foreach (var client in toRemove)
+			{
+				Log.LogInfo("Removing inactive player info for " + _playerInfo[client].name, this);
+				_playerInfo.Remove(client);
+			}
 		}
 
 	}
