@@ -20,6 +20,9 @@ namespace server
 
 		//wraps the board to play on...
 		private TicTacToeBoard _board = new TicTacToeBoard();
+		
+		// Track if players are in process of returning to lobby
+		private bool _returningPlayersToLobby = false;
 
 		public GameRoom(TCPGameServer pOwner) : base(pOwner)
 		{
@@ -31,6 +34,7 @@ namespace server
 
 			IsGameInPlay = true;
 			_playerReturnedToLobby.Clear();
+			_returningPlayersToLobby = false;
 			
 			addMember(pPlayer1);
 			addMember(pPlayer2);
@@ -61,6 +65,15 @@ namespace server
 
 		public override void Update()
 		{
+			// Check for disconnections more aggressively when a game is in play
+			if (IsGameInPlay)
+			{
+				CheckConnections();
+			}
+			
+			// Don't process more updates if we're in the process of returning players to lobby
+			if (_returningPlayersToLobby) return;
+			
 			//check for disconnections
 			int oldMemberCount = memberCount;
 			bool anyDisconnected = removeFaultyMembers();
@@ -93,10 +106,19 @@ namespace server
 			{
 				handleConcedeGameRequest(pSender);
 			}
+			else if (pMessage is HeartbeatResponse)
+			{
+				PlayerInfo playerInfo = _server.GetPlayerInfo(pSender);
+				playerInfo.lastHeartbeatTime = DateTime.Now;
+				playerInfo.heartbeatPending = false;
+			}
 		}
 
 		private void handleMakeMoveRequest(MakeMoveRequest pMessage, TcpMessageChannel pSender)
 		{
+			// Verify the game is still active
+			if (!IsGameInPlay) return;
+			
 			// Get player ID (1 or 2)
 			int playerID = indexOfMember(pSender) + 1;
 			
@@ -203,6 +225,9 @@ namespace server
 			
 			base.removeMember(pMember);
 			
+			// Mark this player as returned to lobby to prevent duplicate addition
+			_playerReturnedToLobby[pMember] = true;
+			
 			// If game is still active and a player left, notify remaining player
 			if (IsGameInPlay && !string.IsNullOrEmpty(playerName))
 			{
@@ -219,14 +244,6 @@ namespace server
 			{
 				// Get the disconnected player's info
 				string disconnectedPlayerName = "The other player";
-				if (_members.Count == 1)
-				{
-					// We need to determine who disconnected
-					int remainingPlayerIndex = indexOfMember(_members[0]) + 1;
-					disconnectedPlayerName = remainingPlayerIndex == 1 ? 
-						_server.GetPlayerInfo(_members[0]).name : // Player 2 disconnected
-						_server.GetPlayerInfo(_members[0]).name;  // Player 1 disconnected
-				}
 				
 				// Notify remaining players
 				PlayerDisconnectedMessage msg = new PlayerDisconnectedMessage();
@@ -255,15 +272,28 @@ namespace server
 		{
 			if (!IsGameInPlay) return;
 			
+			// Set flag to prevent multiple returns and race conditions
+			_returningPlayersToLobby = true;
+			
+			// Take a snapshot of current players
 			TcpMessageChannel[] players = _members.ToArray();
 			
 			foreach (TcpMessageChannel player in players)
 			{
 				try
 				{
+					// Skip players already returned to lobby
+					if (_playerReturnedToLobby.ContainsKey(player) && _playerReturnedToLobby[player])
+					{
+						continue;
+					}
+					
 					// First check if the player is still connected
 					if (player.IsConnected())
 					{
+						// Mark as returned to prevent duplicate addition
+						_playerReturnedToLobby[player] = true;
+						
 						// Send the room joined event BEFORE removing from game room
 						// This ensures the client receives notification before any room change
 						RoomJoinedEvent roomJoinedEvent = new RoomJoinedEvent();
@@ -302,17 +332,43 @@ namespace server
 				}
 			}
 			
+			// Reset game state
 			IsGameInPlay = false;
+			_returningPlayersToLobby = false;
 		}
 
 		private void EndGame(string message)
 		{
 			IsGameInPlay = false;
 			_playerReturnedToLobby.Clear();
+			_returningPlayersToLobby = false;
 			
 			// Log game ending
 			Log.LogInfo(message, this);
 		}
 
+		public override void CheckConnections()
+		{
+			// Force a thorough check of all members for disconnections
+			for (int i = _members.Count - 1; i >= 0; i--)
+			{
+				if (i < _members.Count) // Safety check
+				{
+					try
+					{
+						TcpMessageChannel member = _members[i];
+						if (!member.IsConnected())
+						{
+							Log.LogInfo("CheckConnections found disconnected client in game room", this);
+							removeAndCloseMember(member);
+						}
+					}
+					catch (Exception e)
+					{
+						Log.LogInfo("Exception in CheckConnections: " + e.Message, this);
+					}
+				}
+			}
+		}
 	}
 }

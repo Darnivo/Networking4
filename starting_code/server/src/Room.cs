@@ -42,7 +42,7 @@ namespace server
 			_members.Remove(pMember);
 		}
 
-		protected int memberCount => _members.Count;
+		public int memberCount => _members.Count;
 		
 		protected int indexOfMember (TcpMessageChannel pMember)
 		{
@@ -105,6 +105,15 @@ namespace server
 				if (!pMember.IsConnected())
 				{
 					Log.LogInfo("Client disconnected, removing from room", this);
+					removeAndCloseMember(pMember);
+					return true;
+				}
+				
+				// Also check heartbeat timeout more aggressively
+				PlayerInfo playerInfo = _server.GetPlayerInfo(pMember);
+				if (playerInfo.heartbeatPending && (DateTime.Now - playerInfo.lastHeartbeatTime).TotalSeconds > 5)
+				{
+					Log.LogInfo("Heartbeat timeout detected in checkFaultyMember", this);
 					removeAndCloseMember(pMember);
 					return true;
 				}
@@ -171,7 +180,23 @@ namespace server
 		{
 			foreach (TcpMessageChannel member in _members)
 			{
-				member.SendMessage(pMessage);
+				try
+				{
+					if (member.IsConnected())
+					{
+						member.SendMessage(pMessage);
+					}
+					else
+					{
+						// Member is disconnected but still in room, remove it
+						removeAndCloseMember(member);
+					}
+				}
+				catch (Exception e)
+				{
+					Log.LogInfo("Error sending message: " + e.Message, this);
+					try { removeAndCloseMember(member); } catch {}
+				}
 			}
 		}
 
@@ -184,8 +209,9 @@ namespace server
 				TcpMessageChannel member = _members[i];
 				PlayerInfo playerInfo = _server.GetPlayerInfo(member);
 				
-				// If no heartbeat is pending and it's been more than 5 seconds since the last one
-				if (!playerInfo.heartbeatPending && (DateTime.Now - playerInfo.lastHeartbeatTime).TotalSeconds > 5)
+				// If no heartbeat is pending and it's been more than 3 seconds since the last one
+				// (reduced from 5 seconds for more aggressive checking)
+				if (!playerInfo.heartbeatPending && (DateTime.Now - playerInfo.lastHeartbeatTime).TotalSeconds > 3)
 				{
 					try
 					{
@@ -200,10 +226,11 @@ namespace server
 					}
 				}
 				
-				// If a heartbeat has been pending for more than 10 seconds, the client is considered disconnected
-				if (playerInfo.heartbeatPending && (DateTime.Now - playerInfo.lastHeartbeatTime).TotalSeconds > 10)
+				// If a heartbeat has been pending for more than 5 seconds, the client is considered disconnected
+				// (reduced from 10 seconds for more aggressive checking)
+				if (playerInfo.heartbeatPending && (DateTime.Now - playerInfo.lastHeartbeatTime).TotalSeconds > 5)
 				{
-					Log.LogInfo("Heartbeat timeout detected", this);
+					Log.LogInfo("Heartbeat timeout detected in sendHeartbeats", this);
 					removeAndCloseMember(member);
 				}
 			}
@@ -232,7 +259,5 @@ namespace server
 				}
 			}
 		}
-
 	}
 }
-

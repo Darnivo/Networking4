@@ -73,7 +73,7 @@ namespace server {
 
 				// Periodically check for disconnected clients
 				disconnectCheckCounter++;
-				if (disconnectCheckCounter >= 20) // Check every ~1 second (20 * 50ms sleep)
+				if (disconnectCheckCounter >= 10) // Check more frequently (reduced from 20 to 10)
 				{
 					disconnectCheckCounter = 0;
 					
@@ -86,12 +86,18 @@ namespace server {
 					{
 						game.CheckConnections();
 					}
+					
+					// Also clean up inactive player info to prevent stale data
+					CleanupInactivePlayerInfo();
 				}
 
 				//now update every single room
 				_loginRoom.Update();
 				_lobbyRoom.Update();
 				_gameRoom.Update();
+
+				// Clean up completed game rooms
+				CleanupEmptyGameRooms();
 
 				foreach (GameRoom game in _gameRooms.ToList())
 				{
@@ -167,13 +173,34 @@ namespace server {
 			
 			foreach (var client in toRemove)
 			{
-				Log.LogInfo("Removing inactive player info for " + _playerInfo[client].name, this);
+				// Log removal only if player had a name
+				var playerInfo = _playerInfo[client];
+				if (!string.IsNullOrEmpty(playerInfo.name))
+				{
+					Log.LogInfo("Removing inactive player info for " + playerInfo.name, this);
+				}
 				_playerInfo.Remove(client);
 			}
 		}
-
+		
+		private void CleanupEmptyGameRooms()
+		{
+			List<GameRoom> roomsToRemove = new List<GameRoom>();
+			
+			foreach (GameRoom game in _gameRooms)
+			{
+				// If game is not in play and has no members, it can be removed
+				if (!game.IsGameInPlay && game.memberCount == 0)
+				{
+					roomsToRemove.Add(game);
+				}
+			}
+			
+			foreach (GameRoom game in roomsToRemove)
+			{
+				_gameRooms.Remove(game);
+				Log.LogInfo("Removed completed game room", this);
+			}
+		}
 	}
-
 }
-
-

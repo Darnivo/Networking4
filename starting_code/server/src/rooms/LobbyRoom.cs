@@ -54,6 +54,13 @@ namespace server
 
 		protected override void addMember(TcpMessageChannel pMember)
 		{
+			// Check if member is already in the lobby - prevent duplication
+			if (_members.Contains(pMember))
+			{
+				Log.LogInfo("Prevented duplicate member addition to lobby", this);
+				return;
+			}
+			
 			base.addMember(pMember);
 
 			// Reset heartbeat timer when a player joins the lobby
@@ -76,7 +83,7 @@ namespace server
 			
 			// Send updated lobby info to all clients
 			sendLobbyUpdateCount();
-}
+		}
 
 		/**
 		 * Override removeMember so that our ready count and lobby count is updated (and sent to all clients)
@@ -85,7 +92,11 @@ namespace server
 		protected override void removeMember(TcpMessageChannel pMember)
 		{
 			// Get the player's name before removing them
-			string playerName = _server.GetPlayerInfo(pMember).name;
+			string playerName = "";
+			try {
+				PlayerInfo info = _server.GetPlayerInfo(pMember);
+				if (info != null) playerName = info.name;
+			} catch {}
 			
 			// Call the base method to remove the member
 			base.removeMember(pMember);
@@ -145,6 +156,16 @@ namespace server
 				TcpMessageChannel player1 = _readyMembers[0];
 				TcpMessageChannel player2 = _readyMembers[1];
 				
+				// Ensure players are still connected
+				if (!player1.IsConnected() || !player2.IsConnected())
+				{
+					Log.LogInfo("Players disconnected before game start - aborting", this);
+					// Clean up disconnected players
+					if (!player1.IsConnected()) removeAndCloseMember(player1);
+					if (!player2.IsConnected()) removeAndCloseMember(player2);
+					return;
+				}
+				
 				// Remove from ready members
 				_readyMembers.Remove(player1);
 				_readyMembers.Remove(player2);
@@ -176,11 +197,39 @@ namespace server
 			msg.playerNames = new List<string>();
 			foreach (TcpMessageChannel member in _members)
 			{
-				msg.playerNames.Add(_server.GetPlayerInfo(member).name);
+				try {
+					PlayerInfo info = _server.GetPlayerInfo(member);
+					if (info != null && !string.IsNullOrEmpty(info.name)) {
+						msg.playerNames.Add(info.name);
+					}
+				} catch {}
 			}
 			
 			sendToAll(msg);
 		}
 
+		public override void CheckConnections()
+		{
+			// Force a thorough check of all members for disconnections
+			for (int i = _members.Count - 1; i >= 0; i--)
+			{
+				if (i < _members.Count) // Safety check
+				{
+					try
+					{
+						TcpMessageChannel member = _members[i];
+						if (!member.IsConnected())
+						{
+							Log.LogInfo("CheckConnections found disconnected client in lobby", this);
+							removeAndCloseMember(member);
+						}
+					}
+					catch (Exception e)
+					{
+						Log.LogInfo("Exception in CheckConnections: " + e.Message, this);
+					}
+				}
+			}
+		}
 	}
 }
