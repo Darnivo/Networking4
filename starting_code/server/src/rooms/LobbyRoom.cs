@@ -231,5 +231,13 @@ namespace server
 				}
 			}
 		}
+
+		public void BroadcastGameResult(string result)
+		{
+			ChatMessage chatMessage = new ChatMessage();
+			chatMessage.sender = "[GAME RESULT]";
+			chatMessage.message = result;
+			sendToAll(chatMessage);
+		}
 	}
 }

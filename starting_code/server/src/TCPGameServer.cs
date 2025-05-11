@@ -202,5 +202,10 @@ namespace server {
 				Log.LogInfo("Removed completed game room", this);
 			}
 		}
+
+		public void BroadcastGameResultToLobby(string result)
+		{
+			_lobbyRoom.BroadcastGameResult(result);
+		}
 	}
 }

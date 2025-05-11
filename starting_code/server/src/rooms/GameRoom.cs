@@ -27,6 +27,8 @@ namespace server
 		// Tracks player names for more informative disconnect messages
 		private Dictionary<TcpMessageChannel, string> _playerNames = new Dictionary<TcpMessageChannel, string>();
 
+		private bool _gameResultBroadcast = false;
+
 		public GameRoom(TCPGameServer pOwner) : base(pOwner)
 		{
 		}
@@ -40,6 +42,7 @@ namespace server
 			_returningPlayersToLobby = false;
 			_playerNames.Clear();
 			_lastConnectionCheck = DateTime.Now;
+			_gameResultBroadcast = false;
 			
 			// Additional pre-start connection check
 			if (!pPlayer1.IsConnected() || !pPlayer2.IsConnected())
@@ -308,6 +311,12 @@ namespace server
 				// Send game over message to all players
 				sendToAll(gameOver);
 				
+				if (!_gameResultBroadcast) {
+					_server.BroadcastGameResultToLobby(gameOver.winnerName);
+					_gameResultBroadcast = true;
+				}
+
+
 				// Schedule return to lobby
 				ScheduleReturnToLobby(5000); // 5 seconds
 			}
@@ -338,6 +347,11 @@ namespace server
 			GameOverMessage gameOver = new GameOverMessage();
 			gameOver.winnerName = $"{winnerName} wins! {concederName} conceded.";
 			sendToAll(gameOver);
+
+			if (!_gameResultBroadcast) {
+				_server.BroadcastGameResultToLobby(gameOver.winnerName);
+				_gameResultBroadcast = true;
+			}
 			
 			// Schedule return to lobby
 			ScheduleReturnToLobby(5000); // 5 seconds
@@ -395,6 +409,11 @@ namespace server
 				msg.playerName = disconnectedPlayerName;
 				sendToAll(msg);
 				
+				if (!_gameResultBroadcast) {
+					_server.BroadcastGameResultToLobby($"{disconnectedPlayerName} disconnected. Game ended.");
+					_gameResultBroadcast = true;
+				}
+
 				// Schedule return to lobby immediately
 				ScheduleReturnToLobby(3000); // 3 seconds (reduced from 5)
 			}
