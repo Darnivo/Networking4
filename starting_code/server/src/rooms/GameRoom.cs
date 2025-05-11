@@ -261,12 +261,44 @@ namespace server
 			{
 				try
 				{
-					removeMember(player);
-					_server.GetLobbyRoom().AddMember(player);
+					// First check if the player is still connected
+					if (player.IsConnected())
+					{
+						// Send the room joined event BEFORE removing from game room
+						// This ensures the client receives notification before any room change
+						RoomJoinedEvent roomJoinedEvent = new RoomJoinedEvent();
+						roomJoinedEvent.room = RoomJoinedEvent.Room.LOBBY_ROOM;
+						player.SendMessage(roomJoinedEvent);
+						
+						// Short delay to ensure message is sent before room transition
+						System.Threading.Thread.Sleep(50);
+						
+						// Then transition the player
+						removeMember(player);
+						_server.GetLobbyRoom().AddMember(player);
+						
+						// Update heartbeat time to prevent immediate disconnect check
+						PlayerInfo playerInfo = _server.GetPlayerInfo(player);
+						playerInfo.lastHeartbeatTime = DateTime.Now;
+						playerInfo.heartbeatPending = false;
+					}
+					else
+					{
+						Log.LogInfo("Player disconnected during return to lobby", this);
+						removeAndCloseMember(player);
+					}
 				}
 				catch (Exception e)
 				{
 					Log.LogInfo("Error returning player to lobby: " + e.Message, this);
+					try
+					{
+						if (_members.Contains(player))
+						{
+							removeAndCloseMember(player);
+						}
+					}
+					catch {}
 				}
 			}
 			

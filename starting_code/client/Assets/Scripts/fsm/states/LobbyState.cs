@@ -1,5 +1,6 @@
 ﻿using shared;
 using UnityEngine;
+using System;
 
 /**
  * 'Chat' state while you are waiting to start a game where you can signal that you are ready or not.
@@ -8,6 +9,10 @@ public class LobbyState : ApplicationStateWithView<LobbyView>
 {
     [Tooltip("Should we enter the lobby in a ready state or not?")]
     [SerializeField] private bool autoQueueForGame = false;
+
+    private bool hasLoggedConnectionError = false;
+    private float reconnectTimer = 0f;
+    private const float RECONNECT_INTERVAL = 3f;
 
     public override void EnterState()
     {
@@ -71,19 +76,87 @@ public class LobbyState : ApplicationStateWithView<LobbyView>
 
     private void Update()
     {
+        // Check connection status
+        if (!fsm.channel.Connected)
+        {
+            if (!hasLoggedConnectionError)
+            {
+                Debug.LogWarning("Connection lost in LobbyState. Will attempt to reconnect...");
+                hasLoggedConnectionError = true;
+            }
+            
+            // Try to reconnect periodically
+            reconnectTimer += Time.deltaTime;
+            if (reconnectTimer >= RECONNECT_INTERVAL)
+            {
+                reconnectTimer = 0f;
+                AttemptReconnect();
+            }
+            return;
+        }
+        
+        // If we're here, we're connected
+        if (hasLoggedConnectionError)
+        {
+            Debug.Log("Connection restored in LobbyState");
+            hasLoggedConnectionError = false;
+        }
+        
+        // Process messages as normal
         receiveAndProcessNetworkMessages();
     }
+
+    private void AttemptReconnect()
+    {
+        string serverIP = "0.0.0.0"; 
+        int serverPort = 55555;
+        
+        bool connected = fsm.channel.Connect(serverIP, serverPort);
+        if (connected)
+        {
+            Debug.Log("Reconnected successfully");
+            fsm.ChangeState<LoginState>();
+        }
+        else
+        {
+            Debug.Log("Reconnection attempt failed");
+        }
+    }
+
     
     protected override void handleNetworkMessage(ASerializable pMessage)
     {
-        if (pMessage is HeartbeatMessage)
+        try
         {
-            HeartbeatResponse response = new HeartbeatResponse();
-            fsm.channel.SendMessage(response);
+            if (pMessage is HeartbeatMessage)
+            {
+                // Respond to heartbeats immediately
+                HeartbeatResponse response = new HeartbeatResponse();
+                fsm.channel.SendMessage(response);
+            }
+            else if (pMessage is ChatMessage) 
+            {
+                handleChatMessage(pMessage as ChatMessage);
+            }
+            else if (pMessage is RoomJoinedEvent) 
+            {
+                handleRoomJoinedEvent(pMessage as RoomJoinedEvent);
+            }
+            else if (pMessage is LobbyInfoUpdate) 
+            {
+                handleLobbyInfoUpdate(pMessage as LobbyInfoUpdate);
+            }
+            else
+            {
+                // Gracefully handle unexpected messages
+                Debug.Log("LobbyState: Received unexpected message type: " + pMessage.GetType().Name);
+            }
         }
-        else if (pMessage is ChatMessage) handleChatMessage(pMessage as ChatMessage);
-        else if (pMessage is RoomJoinedEvent) handleRoomJoinedEvent(pMessage as RoomJoinedEvent);
-        else if (pMessage is LobbyInfoUpdate) handleLobbyInfoUpdate(pMessage as LobbyInfoUpdate);
+        catch (Exception e)
+        {
+            Debug.LogError("Error handling message in LobbyState: " + e.Message);
+            // Don't let exceptions from message handling break our state
+        }
     }
 
     private void handleChatMessage(ChatMessage pMessage)

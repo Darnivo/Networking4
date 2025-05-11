@@ -19,7 +19,10 @@ namespace server
 
 		public override void Update()
 		{
-			// Actively check all members
+			// Give newly joined players a grace period (3 seconds) before aggressive connection checks
+			DateTime now = DateTime.Now;
+			
+			// Check for disconnections with grace period
 			for (int i = _members.Count - 1; i >= 0; i--)
 			{
 				if (i < _members.Count) // Safety check
@@ -27,7 +30,12 @@ namespace server
 					try
 					{
 						TcpMessageChannel member = _members[i];
-						if (!member.IsConnected())
+						PlayerInfo playerInfo = _server.GetPlayerInfo(member);
+						
+						// Skip aggressive connection check if player joined recently
+						bool inGracePeriod = (now - playerInfo.lastHeartbeatTime).TotalSeconds < 3;
+						
+						if (!inGracePeriod && !member.IsConnected())
 						{
 							Log.LogInfo("Detected disconnected client in lobby", this);
 							removeAndCloseMember(member);
@@ -40,7 +48,7 @@ namespace server
 				}
 			}
 			
-			// Continue with normal update
+			// Continue with normal update (heartbeats, message processing, etc.)
 			base.Update();
 		}
 
@@ -48,13 +56,19 @@ namespace server
 		{
 			base.addMember(pMember);
 
+			// Reset heartbeat timer when a player joins the lobby
+			// This gives them a grace period before heartbeat checks
+			PlayerInfo playerInfo = _server.GetPlayerInfo(pMember);
+			playerInfo.lastHeartbeatTime = DateTime.Now;
+			playerInfo.heartbeatPending = false;
+
 			// Notify the client they joined the LOBBY_ROOM
 			RoomJoinedEvent roomJoinedEvent = new RoomJoinedEvent();
 			roomJoinedEvent.room = RoomJoinedEvent.Room.LOBBY_ROOM;
 			pMember.SendMessage(roomJoinedEvent);
 
 			// Announce new player in chat
-			string playerName = _server.GetPlayerInfo(pMember).name;
+			string playerName = playerInfo.name;
 			ChatMessage joinMsg = new ChatMessage();
 			joinMsg.sender = "[Server]";
 			joinMsg.message = $"{playerName} has joined the lobby!";
@@ -62,7 +76,7 @@ namespace server
 			
 			// Send updated lobby info to all clients
 			sendLobbyUpdateCount();
-		}
+}
 
 		/**
 		 * Override removeMember so that our ready count and lobby count is updated (and sent to all clients)

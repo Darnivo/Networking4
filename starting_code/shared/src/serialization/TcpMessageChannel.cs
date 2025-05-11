@@ -203,14 +203,28 @@ namespace shared {
                 if (_client == null || !_client.Connected)
                     return false;
 
-                // Check if client is still connected by sending 1-byte
+                // Only use Poll if we haven't received any messages recently
+                // This makes the check less aggressive during active communication
                 if (_client.Client.Poll(0, SelectMode.SelectRead))
                 {
-                    byte[] buff = new byte[1];
-                    if (_client.Client.Receive(buff, SocketFlags.Peek) == 0)
+                    // Don't use Receive which can be problematic during transitions
+                    // Instead, check if there's data available or socket is still valid
+                    if (_client.Available == 0)
                     {
-                        // Client disconnected
-                        return false;
+                        // Additional check - try to get socket option
+                        try
+                        {
+                            byte[] optionValue = new byte[4];
+                            _client.Client.GetSocketOption(SocketOptionLevel.Socket, SocketOptionName.Error, optionValue);
+                            if (BitConverter.ToInt32(optionValue, 0) != 0)
+                            {
+                                return false;
+                            }
+                        }
+                        catch
+                        {
+                            return false; // Socket error
+                        }
                     }
                 }
                 return true;

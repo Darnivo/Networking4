@@ -1,5 +1,6 @@
 ﻿using shared;
 using UnityEngine;
+using System;
 
 /**
  * This is where we 'play' a game.
@@ -80,58 +81,71 @@ public class GameState : ApplicationStateWithView<GameView>
             
             if (returnToLobbyTimer <= 0)
             {
-                // Timer expired, we can go back to lobby now
+                // Timer expired, wait for server to send RoomJoinedEvent
                 returnToLobbyTimer = -1;
+                Debug.Log("Game over timer expired, waiting for server to move us to lobby");
             }
         }
     }
 
     protected override void handleNetworkMessage(ASerializable pMessage)
     {
-        if (pMessage is StartGameMessage)
-        {
-            StartGameMessage startMsg = pMessage as StartGameMessage;
-            // Store player names
-            player1Name = startMsg.player1Name;
-            player2Name = startMsg.player2Name;
-            
-            // Display player names
-            view.playerLabel1.text = $"Player 1: {player1Name}";
-            view.playerLabel2.text = $"Player 2: {player2Name}";
-            
-            // Reset the board and show initial player's turn
-            view.ResetBoard();
-            view.gameStatus.text = $"{player1Name}'s turn";
-        }
-        else if (pMessage is MakeMoveResult)
-        {
-            handleMakeMoveResult(pMessage as MakeMoveResult);
-        }
-        else if (pMessage is GameOverMessage)
-        {
-            GameOverMessage gameOver = pMessage as GameOverMessage;
-            isGameOver = true;
-            
-            // Display game over message and start timer
-            view.gameStatus.text = gameOver.winnerName;
-            returnToLobbyTimer = 5.0f; // 5 seconds before returning to lobby
-        }
-        else if (pMessage is PlayerDisconnectedMessage)
-        {
-            PlayerDisconnectedMessage disconnectMsg = pMessage as PlayerDisconnectedMessage;
-            isGameOver = true;
-            
-            // Display disconnection message and start timer
-            view.gameStatus.text = $"{disconnectMsg.playerName} left the game";
-            returnToLobbyTimer = 5.0f; // 5 seconds before returning to lobby
-        }
-        else if (pMessage is RoomJoinedEvent)
-        {
-            RoomJoinedEvent roomEvent = pMessage as RoomJoinedEvent;
-            if (roomEvent.room == RoomJoinedEvent.Room.LOBBY_ROOM)
+        try {
+            if (pMessage is HeartbeatMessage)
             {
-                fsm.ChangeState<LobbyState>();
+                HeartbeatResponse response = new HeartbeatResponse();
+                fsm.channel.SendMessage(response);
             }
+            else if (pMessage is StartGameMessage)
+            {
+                StartGameMessage startMsg = pMessage as StartGameMessage;
+                // Store player names
+                player1Name = startMsg.player1Name;
+                player2Name = startMsg.player2Name;
+                
+                // Display player names
+                view.playerLabel1.text = $"Player 1: {player1Name}";
+                view.playerLabel2.text = $"Player 2: {player2Name}";
+                
+                // Reset the board and show initial player's turn
+                view.ResetBoard();
+                view.gameStatus.text = $"{player1Name}'s turn";
+            }
+            else if (pMessage is MakeMoveResult)
+            {
+                handleMakeMoveResult(pMessage as MakeMoveResult);
+            }
+            else if (pMessage is GameOverMessage)
+            {
+                GameOverMessage gameOver = pMessage as GameOverMessage;
+                isGameOver = true;
+                
+                // Display game over message and start timer
+                view.gameStatus.text = gameOver.winnerName;
+                returnToLobbyTimer = 5.0f; // 5 seconds before returning to lobby
+            }
+            else if (pMessage is PlayerDisconnectedMessage)
+            {
+                PlayerDisconnectedMessage disconnectMsg = pMessage as PlayerDisconnectedMessage;
+                isGameOver = true;
+                
+                // Display disconnection message and start timer
+                view.gameStatus.text = $"{disconnectMsg.playerName} left the game";
+                returnToLobbyTimer = 5.0f; // 5 seconds before returning to lobby
+            }
+            else if (pMessage is RoomJoinedEvent)
+            {
+                RoomJoinedEvent roomEvent = pMessage as RoomJoinedEvent;
+                if (roomEvent.room == RoomJoinedEvent.Room.LOBBY_ROOM)
+                {
+                    Debug.Log("Received instruction to join lobby room");
+                    fsm.ChangeState<LobbyState>();
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError("Error handling message in GameState: " + e.Message);
         }
     }
 
