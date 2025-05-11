@@ -270,8 +270,14 @@ public class GameState : ApplicationStateWithView<GameView>
         if (resultMsg.isGameOver)
         {
             isGameOver = true;
-            string gameWinnerName = resultMsg.gameWinner == 1 ? player1Name : player2Name;
-            view.gameStatus.text = $"{gameWinnerName} won the game {player1Score} - {player2Score}";
+            
+            // Check if it's a tie
+            if (resultMsg.gameWinner == 0 || player1Score == player2Score) {
+                view.gameStatus.text = $"Game ended in a tie {player1Score} - {player2Score}";
+            } else {
+                string gameWinnerName = resultMsg.gameWinner == 1 ? player1Name : player2Name;
+                view.gameStatus.text = $"{gameWinnerName} won the game {player1Score} - {player2Score}";
+            }
         }
     }
     
@@ -286,7 +292,13 @@ public class GameState : ApplicationStateWithView<GameView>
         isGameOver = true;
         
         // Display game over message and start timer
-        view.gameStatus.text = gameOver.winnerName;
+        // Check if the message indicates a tie
+        if (gameOver.winnerName.Contains("tie")) {
+            view.gameStatus.text = gameOver.winnerName;
+        } else {
+            view.gameStatus.text = gameOver.winnerName;
+        }
+        
         returnToLobbyTimer = 5.0f; // 5 seconds before returning to lobby
     }
 
