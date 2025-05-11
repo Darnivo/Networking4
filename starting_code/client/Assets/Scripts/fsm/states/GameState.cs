@@ -1,22 +1,28 @@
 ﻿using shared;
 using UnityEngine;
 using System;
+using System.Collections;
 
 /**
- * This is where we 'play' a game.
+ * Game state for the reaction-based shape clicking game.
  */
 public class GameState : ApplicationStateWithView<GameView>
 {
-    //just for fun we keep track of how many times a player clicked the board
-    //note that in the current application you have no idea whether you are player 1 or 2
-    //normally it would be better to maintain this sort of info on the server if it is actually important information
-    private int player1MoveCount = 0;
-    private int player2MoveCount = 0;
-
     private string player1Name;
     private string player2Name;
+    private int player1Score = 0;
+    private int player2Score = 0;
     private float returnToLobbyTimer = -1;
     private bool isGameOver = false;
+
+    // Reaction game specific fields
+    private int currentRound = 0;
+    private int crossPosition = -1;
+    private int circlePosition = -1;
+    private int targetShape = -1; // 1=Cross, 2=Circle
+    private float countdownTimer = 0;
+    private bool roundActive = false;
+    private bool boardCleared = true;
 
     public override void EnterState()
     {
@@ -25,24 +31,32 @@ public class GameState : ApplicationStateWithView<GameView>
         // Reset game state
         player1Name = "";
         player2Name = "";
-        player1MoveCount = 0;
-        player2MoveCount = 0;
+        player1Score = 0;
+        player2Score = 0;
         isGameOver = false;
         returnToLobbyTimer = -1;
+        
+        currentRound = 0;
+        crossPosition = -1;
+        circlePosition = -1;
+        targetShape = -1;
+        countdownTimer = 0;
+        roundActive = false;
+        boardCleared = true;
         
         // Reset UI
         view.ResetBoard();
         view.gameStatus.text = "Waiting for game to start...";
         
         // Setup event handlers
-        view.gameBoard.OnCellClicked += _onCellClicked;
+        view.gameBoard.OnCellClicked += OnCellClicked;
         view.btnConcede.onClick.AddListener(ConcedeGame);
     }
 
-    private void _onCellClicked(int pCellIndex)
+    private void OnCellClicked(int pCellIndex)
     {
-        // Only send move if the game is active
-        if (!isGameOver)
+        // Only process clicks if a round is active
+        if (roundActive)
         {
             MakeMoveRequest makeMoveRequest = new MakeMoveRequest();
             makeMoveRequest.move = pCellIndex;
@@ -54,7 +68,6 @@ public class GameState : ApplicationStateWithView<GameView>
     {
         if (!isGameOver)
         {
-            // Create a concede message
             ConcedeGameRequest concedeRequest = new ConcedeGameRequest();
             fsm.channel.SendMessage(concedeRequest);
         }
@@ -63,13 +76,29 @@ public class GameState : ApplicationStateWithView<GameView>
     public override void ExitState()
     {
         base.ExitState();
-        view.gameBoard.OnCellClicked -= _onCellClicked;
+        view.gameBoard.OnCellClicked -= OnCellClicked;
         view.btnConcede.onClick.RemoveAllListeners();
     }
 
     private void Update()
     {
         receiveAndProcessNetworkMessages();
+        
+        // Handle countdown timer for round
+        if (countdownTimer > 0)
+        {
+            countdownTimer -= Time.deltaTime;
+            int secondsRemaining = Mathf.CeilToInt(countdownTimer);
+            
+            // Update countdown text
+            view.gameStatus.text = $"Round {currentRound}/3 - Starts in {secondsRemaining}...";
+            
+            // When countdown reaches zero, prepare board
+            if (countdownTimer <= 0 && !roundActive && boardCleared)
+            {
+                PrepareRoundBoard();
+            }
+        }
         
         // Handle return to lobby timer
         if (returnToLobbyTimer > 0)
@@ -88,6 +117,37 @@ public class GameState : ApplicationStateWithView<GameView>
         }
     }
 
+    private void PrepareRoundBoard()
+    {
+        // Clear the board visually first
+        ClearBoard();
+        
+        // Create shapes on the board
+        if (crossPosition >= 0)
+        {
+            TicTacToeBoardData boardData = new TicTacToeBoardData();
+            boardData.board[crossPosition] = 1; // Cross
+            if (circlePosition >= 0) boardData.board[circlePosition] = 2; // Circle
+            view.gameBoard.SetBoardData(boardData);
+        }
+        
+        // Set instruction text
+        string targetText = targetShape == 1 ? "Click the cross (X)!" : "Click the circle (O)!";
+        view.gameStatus.text = targetText;
+        
+        // Activate round
+        roundActive = true;
+        boardCleared = false;
+    }
+    
+    private void ClearBoard()
+    {
+        // Reset board to empty
+        TicTacToeBoardData emptyBoard = new TicTacToeBoardData();
+        view.gameBoard.SetBoardData(emptyBoard);
+        boardCleared = true;
+    }
+
     protected override void handleNetworkMessage(ASerializable pMessage)
     {
         try {
@@ -98,49 +158,27 @@ public class GameState : ApplicationStateWithView<GameView>
             }
             else if (pMessage is StartGameMessage)
             {
-                StartGameMessage startMsg = pMessage as StartGameMessage;
-                // Store player names
-                player1Name = startMsg.player1Name;
-                player2Name = startMsg.player2Name;
-                
-                // Display player names
-                view.playerLabel1.text = $"Player 1: {player1Name}";
-                view.playerLabel2.text = $"Player 2: {player2Name}";
-                
-                // Reset the board and show initial player's turn
-                view.ResetBoard();
-                view.gameStatus.text = $"{player1Name}'s turn";
+                HandleStartGameMessage(pMessage as StartGameMessage);
             }
-            else if (pMessage is MakeMoveResult)
+            else if (pMessage is RoundStartMessage)
             {
-                handleMakeMoveResult(pMessage as MakeMoveResult);
+                HandleRoundStartMessage(pMessage as RoundStartMessage);
+            }
+            else if (pMessage is RoundResultMessage)
+            {
+                HandleRoundResultMessage(pMessage as RoundResultMessage);
             }
             else if (pMessage is GameOverMessage)
             {
-                GameOverMessage gameOver = pMessage as GameOverMessage;
-                isGameOver = true;
-                
-                // Display game over message and start timer
-                view.gameStatus.text = gameOver.winnerName;
-                returnToLobbyTimer = 5.0f; // 5 seconds before returning to lobby
+                HandleGameOverMessage(pMessage as GameOverMessage);
             }
             else if (pMessage is PlayerDisconnectedMessage)
             {
-                PlayerDisconnectedMessage disconnectMsg = pMessage as PlayerDisconnectedMessage;
-                isGameOver = true;
-                
-                // Display disconnection message and start timer
-                view.gameStatus.text = $"{disconnectMsg.playerName} left the game";
-                returnToLobbyTimer = 5.0f; // 5 seconds before returning to lobby
+                HandlePlayerDisconnectedMessage(pMessage as PlayerDisconnectedMessage);
             }
             else if (pMessage is RoomJoinedEvent)
             {
-                RoomJoinedEvent roomEvent = pMessage as RoomJoinedEvent;
-                if (roomEvent.room == RoomJoinedEvent.Room.LOBBY_ROOM)
-                {
-                    Debug.Log("Received instruction to join lobby room");
-                    fsm.ChangeState<LobbyState>();
-                }
+                HandleRoomJoinedEvent(pMessage as RoomJoinedEvent);
             }
         }
         catch (Exception e)
@@ -149,25 +187,106 @@ public class GameState : ApplicationStateWithView<GameView>
         }
     }
 
-    private void handleMakeMoveResult(MakeMoveResult pMakeMoveResult)
+    private void HandleStartGameMessage(StartGameMessage startMsg)
     {
-        view.gameBoard.SetBoardData(pMakeMoveResult.boardData);
+        // Store player names
+        player1Name = startMsg.player1Name;
+        player2Name = startMsg.player2Name;
+        
+        // Display player names
+        view.playerLabel1.text = $"Player 1: {player1Name}";
+        view.playerLabel2.text = $"Player 2: {player2Name}";
+        
+        // Reset the board and show waiting message
+        view.ResetBoard();
+        view.gameStatus.text = "Game starting soon...";
+        
+        // Reset scores
+        player1Score = 0;
+        player2Score = 0;
+    }
 
-        // Update the turn status
-        int nextPlayer = pMakeMoveResult.boardData.currentPlayerTurn;
-        string currentPlayerName = nextPlayer == 1 ? player1Name : player2Name;
-        view.gameStatus.text = $"{currentPlayerName}'s turn";
+    private void HandleRoundStartMessage(RoundStartMessage roundMsg)
+    {
+        // Store round information
+        currentRound = roundMsg.roundNumber;
+        crossPosition = roundMsg.crossPosition[0];
+        circlePosition = roundMsg.circlePosition[0];
+        targetShape = roundMsg.targetShape;
+        
+        // Start countdown
+        countdownTimer = roundMsg.countdownSeconds;
+        roundActive = false;
+        
+        // Clear board for countdown
+        ClearBoard();
+        
+        // Update score display
+        UpdateScoreDisplay();
+    }
 
-        // Update move count displays
-        if (pMakeMoveResult.whoMadeTheMove == 1)
-        {
-            player1MoveCount++;
-            view.playerLabel1.text = $"Player 1: {player1Name} (Moves: {player1MoveCount})";
+    private void HandleRoundResultMessage(RoundResultMessage resultMsg)
+    {
+        // Update scores
+        player1Score = resultMsg.player1Score;
+        player2Score = resultMsg.player2Score;
+        
+        // Stop active round
+        roundActive = false;
+        
+        // Clear the board
+        ClearBoard();
+        
+        // Show round result
+        string winnerName = resultMsg.winnerPlayerID == 1 ? player1Name : player2Name;
+        if (resultMsg.winnerPlayerID > 0) {
+            view.gameStatus.text = $"{winnerName} clicked it faster!\n(Scoreline: {player1Name} {player1Score} - {player2Score} {player2Name})";
+        } else {
+            view.gameStatus.text = $"No one clicked in time!\n(Scoreline: {player1Name} {player1Score} - {player2Score} {player2Name})";
         }
-        else if (pMakeMoveResult.whoMadeTheMove == 2)
+        
+        // Update score display
+        UpdateScoreDisplay();
+        
+        // If game is over, show game over message
+        if (resultMsg.isGameOver)
         {
-            player2MoveCount++;
-            view.playerLabel2.text = $"Player 2: {player2Name} (Moves: {player2MoveCount})";
+            isGameOver = true;
+            string gameWinnerName = resultMsg.gameWinner == 1 ? player1Name : player2Name;
+            view.gameStatus.text = $"{gameWinnerName} won the game {player1Score} - {player2Score}";
+        }
+    }
+    
+    private void UpdateScoreDisplay()
+    {
+        view.playerLabel1.text = $"Player 1: {player1Name} (Score: {player1Score})";
+        view.playerLabel2.text = $"Player 2: {player2Name} (Score: {player2Score})";
+    }
+
+    private void HandleGameOverMessage(GameOverMessage gameOver)
+    {
+        isGameOver = true;
+        
+        // Display game over message and start timer
+        view.gameStatus.text = gameOver.winnerName;
+        returnToLobbyTimer = 5.0f; // 5 seconds before returning to lobby
+    }
+
+    private void HandlePlayerDisconnectedMessage(PlayerDisconnectedMessage disconnectMsg)
+    {
+        isGameOver = true;
+        
+        // Display disconnection message and start timer
+        view.gameStatus.text = $"{disconnectMsg.playerName} left the game";
+        returnToLobbyTimer = 5.0f; // 5 seconds before returning to lobby
+    }
+
+    private void HandleRoomJoinedEvent(RoomJoinedEvent roomEvent)
+    {
+        if (roomEvent.room == RoomJoinedEvent.Room.LOBBY_ROOM)
+        {
+            Debug.Log("Received instruction to join lobby room");
+            fsm.ChangeState<LobbyState>();
         }
     }
 }
