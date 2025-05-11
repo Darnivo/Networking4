@@ -55,8 +55,8 @@ public class GameState : ApplicationStateWithView<GameView>
 
     private void OnCellClicked(int pCellIndex)
     {
-        // Only process clicks if a round is active
-        if (roundActive)
+        // Only process clicks if a round is active and game is not over
+        if (roundActive && !isGameOver)
         {
             MakeMoveRequest makeMoveRequest = new MakeMoveRequest();
             makeMoveRequest.move = pCellIndex;
@@ -84,29 +84,41 @@ public class GameState : ApplicationStateWithView<GameView>
     {
         receiveAndProcessNetworkMessages();
         
-        // Handle countdown timer for round
-        if (countdownTimer > 0)
+        // Only process game timers if the game isn't over
+        if (!isGameOver)
         {
-            countdownTimer -= Time.deltaTime;
-            int secondsRemaining = Mathf.CeilToInt(countdownTimer);
-            
-            // Update countdown text
-            view.gameStatus.text = $"Round {currentRound}/3 - Starts in {secondsRemaining}...";
-            
-            // When countdown reaches zero, prepare board
-            if (countdownTimer <= 0 && !roundActive && boardCleared)
+            // Handle countdown timer for round
+            if (countdownTimer > 0)
             {
-                PrepareRoundBoard();
+                countdownTimer -= Time.deltaTime;
+                int secondsRemaining = Mathf.CeilToInt(countdownTimer);
+                
+                // Update countdown text
+                view.gameStatus.text = $"Round {currentRound}/3 - Starts in {secondsRemaining}...";
+                
+                // When countdown reaches zero, prepare board
+                if (countdownTimer <= 0 && !roundActive && boardCleared)
+                {
+                    PrepareRoundBoard();
+                }
             }
         }
         
-        // Handle return to lobby timer
+        // Handle return to lobby timer - this should work even if game is over
         if (returnToLobbyTimer > 0)
         {
             returnToLobbyTimer -= Time.deltaTime;
             // Update the text with remaining time
             int secondsLeft = Mathf.CeilToInt(returnToLobbyTimer);
-            view.gameStatus.text = view.gameStatus.text.Split(',')[0] + $", returning to lobby in {secondsLeft} seconds...";
+            
+            // Make sure we don't lose the original message
+            string baseMessage = view.gameStatus.text;
+            if (baseMessage.Contains(", returning to lobby in"))
+            {
+                baseMessage = baseMessage.Substring(0, baseMessage.IndexOf(", returning to lobby in"));
+            }
+            
+            view.gameStatus.text = baseMessage + $", returning to lobby in {secondsLeft} seconds...";
             
             if (returnToLobbyTimer <= 0)
             {
@@ -119,6 +131,9 @@ public class GameState : ApplicationStateWithView<GameView>
 
     private void PrepareRoundBoard()
     {
+        // Don't update anything if the game is over
+        if (isGameOver) return;
+        
         // Clear the board visually first
         ClearBoard();
         
@@ -227,6 +242,9 @@ public class GameState : ApplicationStateWithView<GameView>
 
     private void HandleRoundResultMessage(RoundResultMessage resultMsg)
     {
+        // Check if game is already over (from disconnection or concede)
+        if (isGameOver) return;
+    
         // Update scores
         player1Score = resultMsg.player1Score;
         player2Score = resultMsg.player2Score;

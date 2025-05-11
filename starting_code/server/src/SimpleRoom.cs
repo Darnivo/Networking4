@@ -7,12 +7,12 @@ namespace server
      */
     abstract class SimpleRoom : Room
     {
-		protected SimpleRoom(TCPGameServer pServer) : base(pServer) { }
+        protected SimpleRoom(TCPGameServer pServer) : base(pServer) { }
 
-        public void AddMember (TcpMessageChannel pChannel)
+        public void AddMember(TcpMessageChannel pChannel)
         {
             addMember(pChannel);
         }
 
-	}
+    }
 }

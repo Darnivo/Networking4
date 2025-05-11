@@ -1,7 +1,4 @@
 ﻿using shared;
-using System;
-using System.Collections.Generic;
-using System.Threading;
 
 namespace server
 {
@@ -24,18 +21,18 @@ namespace server
         private int _targetShape = -1; // 1 for cross, 2 for circle
         private bool _awaitingClicks = false;
         private Random _random = new Random();
-        
+
         // Track if players are in process of returning to lobby
         private bool _returningPlayersToLobby = false;
-        
+
         // Last time we did an aggressive connection check
         private DateTime _lastConnectionCheck = DateTime.Now;
-        
+
         // Tracks player names for more informative disconnect messages
         private Dictionary<TcpMessageChannel, string> _playerNames = new Dictionary<TcpMessageChannel, string>();
 
         private bool _gameResultBroadcast = false;
-        
+
         // Timer for managing round countdowns
         private Timer _roundTimer = null;
 
@@ -53,13 +50,13 @@ namespace server
             _playerNames.Clear();
             _lastConnectionCheck = DateTime.Now;
             _gameResultBroadcast = false;
-            
+
             // Reset game state
             _currentRound = 0;
             _player1Score = 0;
             _player2Score = 0;
             _awaitingClicks = false;
-            
+
             // Additional pre-start connection check
             if (!pPlayer1.IsConnected() || !pPlayer2.IsConnected())
             {
@@ -69,20 +66,23 @@ namespace server
                 IsGameInPlay = false;
                 return;
             }
-            
+
             // Store player names for better disconnect handling
-            try {
+            try
+            {
                 _playerNames[pPlayer1] = _server.GetPlayerInfo(pPlayer1).name;
                 _playerNames[pPlayer2] = _server.GetPlayerInfo(pPlayer2).name;
-            } catch {
+            }
+            catch
+            {
                 // Fallback if player info can't be retrieved
                 _playerNames[pPlayer1] = "Player 1";
                 _playerNames[pPlayer2] = "Player 2";
             }
-            
+
             addMember(pPlayer1);
             addMember(pPlayer2);
-            
+
             _playerReturnedToLobby[pPlayer1] = false;
             _playerReturnedToLobby[pPlayer2] = false;
 
@@ -91,10 +91,10 @@ namespace server
             startMsg.player1Name = _playerNames[pPlayer1];
             startMsg.player2Name = _playerNames[pPlayer2];
             sendToAll(startMsg);
-            
+
             // Send immediate heartbeats to both clients to establish connection
             sendImmediateHeartbeats();
-            
+
             // Start the first round after a short delay
             _roundTimer = new Timer(_ => StartNextRound(), null, 2000, Timeout.Infinite);
         }
@@ -112,23 +112,24 @@ namespace server
         private void StartNextRound()
         {
             _currentRound++;
-            
+
             // Only go up to 3 rounds
             if (_currentRound > 3 || (_currentRound == 3 && _player1Score != _player2Score))
             {
                 EndGame();
                 return;
             }
-            
+
             // Generate positions for cross and circle - ensure they're not the same
             _crossPosition = _random.Next(0, 9);
-            do {
+            do
+            {
                 _circlePosition = _random.Next(0, 9);
             } while (_circlePosition == _crossPosition);
-            
+
             // Randomly select target shape (1=cross, 2=circle)
             _targetShape = _random.Next(1, 3);
-            
+
             // Create the round start message
             RoundStartMessage roundMsg = new RoundStartMessage();
             roundMsg.roundNumber = _currentRound;
@@ -136,16 +137,19 @@ namespace server
             roundMsg.circlePosition = new int[1] { _circlePosition };
             roundMsg.targetShape = _targetShape;
             roundMsg.countdownSeconds = 3;
-            
+
             // Send to all players
             sendToAll(roundMsg);
-            
+
             // After countdown, enable clicking
-            _roundTimer = new Timer(_ => {
+            _roundTimer = new Timer(_ =>
+            {
                 _awaitingClicks = true;
                 // If neither player clicks after 10 seconds, move to next round
-                _roundTimer = new Timer(_ => {
-                    if (_awaitingClicks) {
+                _roundTimer = new Timer(_ =>
+                {
+                    if (_awaitingClicks)
+                    {
                         // Nobody clicked in time, move to next round with no winner
                         RoundResultMessage resultMsg = new RoundResultMessage();
                         resultMsg.roundNumber = _currentRound;
@@ -154,33 +158,46 @@ namespace server
                         resultMsg.player2Score = _player2Score;
                         resultMsg.isGameOver = false;
                         resultMsg.gameWinner = 0;
-                        
+
                         sendToAll(resultMsg);
-                        
+
                         // Start next round after a delay
                         _roundTimer = new Timer(_ => StartNextRound(), null, 3000, Timeout.Infinite);
                     }
                 }, null, 10000, Timeout.Infinite);
             }, null, 3000, Timeout.Infinite);
         }
-        
+
         private void EndGame()
         {
+            // Cancel any pending timers
+            if (_roundTimer != null)
+            {
+                _roundTimer.Dispose();
+                _roundTimer = null;
+            }
+
             // Determine winner
             int winner = (_player1Score > _player2Score) ? 1 : 2;
-            string winnerName = (winner == 1) ? _playerNames[_members[0]] : _playerNames[_members[1]];
-            
+            string winnerName = (winner == 1) ?
+                (_members.Count > 0 ? _playerNames[_members[0]] : "Player 1") :
+                (_members.Count > 1 ? _playerNames[_members[1]] : "Player 2");
+
             // Create game over message
             GameOverMessage gameOver = new GameOverMessage();
             gameOver.winnerName = winnerName + " won the game " + _player1Score + "-" + _player2Score;
             sendToAll(gameOver);
-            
+
             // Broadcast result to lobby
-            if (!_gameResultBroadcast) {
+            if (!_gameResultBroadcast)
+            {
                 _server.BroadcastGameResultToLobby(gameOver.winnerName);
                 _gameResultBroadcast = true;
             }
-            
+
+            // Mark game as no longer awaiting clicks
+            _awaitingClicks = false;
+
             // Schedule return to lobby
             ScheduleReturnToLobby(5000);
         }
@@ -197,10 +214,10 @@ namespace server
                     PerformActiveConnectionCheck();
                 }
             }
-            
+
             // Don't process more updates if we're in the process of returning players to lobby
             if (_returningPlayersToLobby) return;
-            
+
             //check for disconnections
             int oldMemberCount = memberCount;
             bool anyDisconnected = removeFaultyMembers();
@@ -214,7 +231,7 @@ namespace server
             }
 
             receiveAndProcessNetworkMessages();
-            
+
             // Check if all players are back in lobby, clean up this game instance
             if (IsGameInPlay && _members.Count == 0)
             {
@@ -222,15 +239,15 @@ namespace server
                 Log.LogInfo("Game ended, all players returned to lobby", this);
             }
         }
-        
+
         private void PerformActiveConnectionCheck()
         {
             for (int i = _members.Count - 1; i >= 0; i--)
             {
                 if (i >= _members.Count) continue;
-                
+
                 TcpMessageChannel member = _members[i];
-                
+
                 try
                 {
                     // First check if connection is still alive
@@ -240,7 +257,7 @@ namespace server
                         PlayerDisconnectedFromGame(member);
                         continue;
                     }
-                    
+
                     // Then try to send a ping with an immediate response expected
                     HeartbeatMessage ping = new HeartbeatMessage();
                     try
@@ -248,7 +265,7 @@ namespace server
                         member.SendMessage(ping);
                         PlayerInfo playerInfo = _server.GetPlayerInfo(member);
                         playerInfo.heartbeatPending = true;
-                        
+
                         // If the last heartbeat was sent more than 3 seconds ago with no response,
                         // consider the client disconnected
                         if ((DateTime.Now - playerInfo.lastHeartbeatTime).TotalSeconds > 3)
@@ -266,30 +283,30 @@ namespace server
                 catch (Exception e)
                 {
                     Log.LogInfo("Exception in active connection check: " + e.Message, this);
-                    try { removeAndCloseMember(member); } catch {}
+                    try { removeAndCloseMember(member); } catch { }
                 }
             }
         }
-        
+
         private void PlayerDisconnectedFromGame(TcpMessageChannel member)
         {
             if (!IsGameInPlay) return;
-            
+
             string disconnectedName = "Unknown player";
             if (_playerNames.ContainsKey(member))
             {
                 disconnectedName = _playerNames[member];
             }
-            
+
             Log.LogInfo($"Player {disconnectedName} disconnected from game", this);
-            
+
             // Remove the player immediately
             removeAndCloseMember(member);
-            
+
             // Notify remaining players and end the game
             HandlePlayerDisconnection();
         }
-        
+
         private void sendImmediateHeartbeats()
         {
             foreach (TcpMessageChannel member in _members)
@@ -332,36 +349,43 @@ namespace server
         {
             // Verify the game is still active and we're awaiting clicks
             if (!IsGameInPlay || !_awaitingClicks) return;
-            
+
             int playerID = indexOfMember(pSender) + 1; // 1 or 2
             int clickedPosition = pMessage.move;
-            
+
             // Check if click was on the correct target
             bool isCorrect = false;
-            
-            if (_targetShape == 1 && clickedPosition == _crossPosition) {
+
+            if (_targetShape == 1 && clickedPosition == _crossPosition)
+            {
                 // Target was Cross and player clicked Cross
                 isCorrect = true;
-            } else if (_targetShape == 2 && clickedPosition == _circlePosition) {
+            }
+            else if (_targetShape == 2 && clickedPosition == _circlePosition)
+            {
                 // Target was Circle and player clicked Circle
                 isCorrect = true;
             }
-            
-            if (isCorrect) {
+
+            if (isCorrect)
+            {
                 // Player clicked correct position
                 _awaitingClicks = false; // Stop accepting clicks
-                
+
                 // Update scores
-                if (playerID == 1) {
+                if (playerID == 1)
+                {
                     _player1Score++;
-                } else {
+                }
+                else
+                {
                     _player2Score++;
                 }
-                
+
                 // Check if game is over (player reached 2 wins or we've done 3 rounds)
                 bool isGameOver = (_player1Score >= 2 || _player2Score >= 2 || _currentRound >= 3);
                 int gameWinner = (_player1Score > _player2Score) ? 1 : 2;
-                
+
                 // Create round result message
                 RoundResultMessage resultMsg = new RoundResultMessage();
                 resultMsg.roundNumber = _currentRound;
@@ -370,13 +394,16 @@ namespace server
                 resultMsg.player2Score = _player2Score;
                 resultMsg.isGameOver = isGameOver;
                 resultMsg.gameWinner = gameWinner;
-                
+
                 sendToAll(resultMsg);
-                
+
                 // If game over, end game, otherwise start next round
-                if (isGameOver) {
+                if (isGameOver)
+                {
                     EndGame();
-                } else {
+                }
+                else
+                {
                     // Start next round after a delay
                     _roundTimer = new Timer(_ => StartNextRound(), null, 3000, Timeout.Infinite);
                 }
@@ -387,34 +414,47 @@ namespace server
         private void handleConcedeGameRequest(TcpMessageChannel pSender)
         {
             if (!IsGameInPlay) return;
-            
+
+            // Cancel any pending timers
+            if (_roundTimer != null)
+            {
+                _roundTimer.Dispose();
+                _roundTimer = null;
+            }
+
+            // Mark game as no longer awaiting clicks
+            _awaitingClicks = false;
+
             // Determine which player conceded
             int playerIndex = indexOfMember(pSender) + 1;
             int winnerIndex = playerIndex == 1 ? 2 : 1;
-            
+
             // Find the winner
             string winnerName = "Unknown";
             string concederName = "Unknown";
-            
-            try {
+
+            try
+            {
                 concederName = _playerNames[pSender];
-                
+
                 if (_members.Count >= winnerIndex && winnerIndex > 0)
                 {
-                    winnerName = _playerNames[_members[winnerIndex-1]];
+                    winnerName = _playerNames[_members[winnerIndex - 1]];
                 }
-            } catch {}
-            
+            }
+            catch { }
+
             // Send game over message
             GameOverMessage gameOver = new GameOverMessage();
             gameOver.winnerName = $"{winnerName} wins! {concederName} conceded.";
             sendToAll(gameOver);
 
-            if (!_gameResultBroadcast) {
+            if (!_gameResultBroadcast)
+            {
                 _server.BroadcastGameResultToLobby(gameOver.winnerName);
                 _gameResultBroadcast = true;
             }
-            
+
             // Schedule return to lobby
             ScheduleReturnToLobby(5000); // 5 seconds
         }
@@ -423,17 +463,20 @@ namespace server
         {
             // Store player info before removing
             string playerName = "";
-            try {
-                if (_playerNames.ContainsKey(pMember)) {
+            try
+            {
+                if (_playerNames.ContainsKey(pMember))
+                {
                     playerName = _playerNames[pMember];
                 }
-            } catch {}
-            
+            }
+            catch { }
+
             base.removeMember(pMember);
-            
+
             // Mark this player as returned to lobby to prevent duplicate addition
             _playerReturnedToLobby[pMember] = true;
-            
+
             // If game is still active and a player left, notify remaining player
             if (IsGameInPlay && !string.IsNullOrEmpty(playerName))
             {
@@ -444,18 +487,28 @@ namespace server
         private void HandlePlayerDisconnection()
         {
             if (!IsGameInPlay) return;
-            
+
+            // Cancel any pending timers
+            if (_roundTimer != null)
+            {
+                _roundTimer.Dispose();
+                _roundTimer = null;
+            }
+
+            // Mark game as no longer awaiting clicks
+            _awaitingClicks = false;
+
             // If there are still players in the game
             if (_members.Count > 0)
             {
                 // Get the disconnected player's info
                 string disconnectedPlayerName = "The other player";
-                
+
                 // Find which player disconnected by comparing who's left
                 if (_members.Count == 1)
                 {
                     TcpMessageChannel remainingPlayer = _members[0];
-                    
+
                     foreach (var entry in _playerNames)
                     {
                         if (entry.Key != remainingPlayer)
@@ -465,13 +518,14 @@ namespace server
                         }
                     }
                 }
-                
+
                 // Notify remaining players
                 PlayerDisconnectedMessage msg = new PlayerDisconnectedMessage();
                 msg.playerName = disconnectedPlayerName;
                 sendToAll(msg);
-                
-                if (!_gameResultBroadcast) {
+
+                if (!_gameResultBroadcast)
+                {
                     _server.BroadcastGameResultToLobby($"{disconnectedPlayerName} disconnected. Game ended.");
                     _gameResultBroadcast = true;
                 }
@@ -489,7 +543,8 @@ namespace server
         private void ScheduleReturnToLobby(int delayMs)
         {
             // Simple implementation with a timer thread
-            new System.Threading.Timer((_) => {
+            new System.Threading.Timer((_) =>
+            {
                 ReturnPlayersToLobby();
             }, null, delayMs, System.Threading.Timeout.Infinite);
         }
@@ -497,13 +552,13 @@ namespace server
         private void ReturnPlayersToLobby()
         {
             if (!IsGameInPlay) return;
-            
+
             // Set flag to prevent multiple returns and race conditions
             _returningPlayersToLobby = true;
-            
+
             // Take a snapshot of current players
             TcpMessageChannel[] players = _members.ToArray();
-            
+
             foreach (TcpMessageChannel player in players)
             {
                 try
@@ -513,26 +568,26 @@ namespace server
                     {
                         continue;
                     }
-                    
+
                     // First check if the player is still connected
                     if (player.IsConnected())
                     {
                         // Mark as returned to prevent duplicate addition
                         _playerReturnedToLobby[player] = true;
-                        
+
                         // Send the room joined event BEFORE removing from game room
                         // This ensures the client receives notification before any room change
                         RoomJoinedEvent roomJoinedEvent = new RoomJoinedEvent();
                         roomJoinedEvent.room = RoomJoinedEvent.Room.LOBBY_ROOM;
                         player.SendMessage(roomJoinedEvent);
-                        
+
                         // Short delay to ensure message is sent before room transition
                         System.Threading.Thread.Sleep(50);
-                        
+
                         // Then transition the player
                         removeMember(player);
                         _server.GetLobbyRoom().AddMember(player);
-                        
+
                         // Update heartbeat time to prevent immediate disconnect check
                         PlayerInfo playerInfo = _server.GetPlayerInfo(player);
                         playerInfo.lastHeartbeatTime = DateTime.Now;
@@ -554,10 +609,10 @@ namespace server
                             removeAndCloseMember(player);
                         }
                     }
-                    catch {}
+                    catch { }
                 }
             }
-            
+
             // Reset game state
             IsGameInPlay = false;
             _returningPlayersToLobby = false;
@@ -568,7 +623,7 @@ namespace server
             IsGameInPlay = false;
             _playerReturnedToLobby.Clear();
             _returningPlayersToLobby = false;
-            
+
             // Log game ending
             Log.LogInfo(message, this);
         }
