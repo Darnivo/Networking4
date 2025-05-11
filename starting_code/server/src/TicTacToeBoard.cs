@@ -22,11 +22,16 @@ namespace server
          * @param pMove     a number from 0-8 that indicates the cell we want to change
          * @param pPlayer   1 or 2 to indicate which player made the move
          */
-        public void MakeMove (int pMove, int pPlayer)
+
+        public TicTacToeBoard()
+        {
+            _board.currentPlayerTurn = 1; // Player 1 always starts
+        }
+
+        public void MakeMove(int pMove, int pPlayer)
         {
             _board.board[pMove] = pPlayer;
 
-            //we could also check which row and column if we wanted to:
             int columns = 3;
             int row = pMove / columns;
             int column = pMove % columns;

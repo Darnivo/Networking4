@@ -14,6 +14,8 @@ namespace server
 	 */
 	class GameRoom : Room
 	{
+		private Dictionary<TcpMessageChannel, bool> _playerReturnedToLobby = new Dictionary<TcpMessageChannel, bool>();
+
 		public bool IsGameInPlay { get; private set; }
 
 		//wraps the board to play on...
@@ -28,8 +30,17 @@ namespace server
 			if (IsGameInPlay) throw new Exception("Game already in progress.");
 
 			IsGameInPlay = true;
+			_playerReturnedToLobby.Clear();
+			
 			addMember(pPlayer1);
 			addMember(pPlayer2);
+			
+			_playerReturnedToLobby[pPlayer1] = false;
+			_playerReturnedToLobby[pPlayer2] = false;
+
+			// Initialize board with player 1's turn
+			_board = new TicTacToeBoard();
+			_board.GetBoardData().currentPlayerTurn = 1; // Player 1 starts
 
 			// Send start game message with player names
 			StartGameMessage startMsg = new StartGameMessage();
@@ -50,36 +61,52 @@ namespace server
 
 		public override void Update()
 		{
-			//demo of how we can tell people have left the game...
+			//check for disconnections
 			int oldMemberCount = memberCount;
-			base.Update();
+			bool anyDisconnected = removeFaultyMembers();
 			int newMemberCount = memberCount;
 
-			if (oldMemberCount != newMemberCount)
+			// If anyone disconnected, notify remaining players
+			if (anyDisconnected || oldMemberCount != newMemberCount)
 			{
-				Log.LogInfo("People left the game...", this);
+				Log.LogInfo("Player(s) left the game", this);
+				HandlePlayerDisconnection();
+			}
+
+			receiveAndProcessNetworkMessages();
+			
+			// Check if all players are back in lobby, clean up this game instance
+			if (IsGameInPlay && _members.Count == 0)
+			{
+				IsGameInPlay = false;
+				Log.LogInfo("Game ended, all players returned to lobby", this);
 			}
 		}
 
 		protected override void handleNetworkMessage(ASerializable pMessage, TcpMessageChannel pSender)
 		{
-			if (pMessage is HeartbeatResponse)
-			{
-				PlayerInfo playerInfo = _server.GetPlayerInfo(pSender);
-				playerInfo.lastHeartbeatTime = DateTime.Now;
-				playerInfo.heartbeatPending = false;
-			}
-			else if (pMessage is MakeMoveRequest)
+			if (pMessage is MakeMoveRequest)
 			{
 				handleMakeMoveRequest(pMessage as MakeMoveRequest, pSender);
 			}
+			else if (pMessage is ConcedeGameRequest)
+			{
+				handleConcedeGameRequest(pSender);
+			}
 		}
 
-		// In GameRoom.cs - handleMakeMoveRequest method
 		private void handleMakeMoveRequest(MakeMoveRequest pMessage, TcpMessageChannel pSender)
 		{
 			// Get player ID (1 or 2)
 			int playerID = indexOfMember(pSender) + 1;
+			
+			// Check if it's this player's turn
+			if (playerID != _board.GetBoardData().currentPlayerTurn)
+			{
+				// Not this player's turn
+				Log.LogInfo($"Not player {playerID}'s turn, ignoring move", this);
+				return;
+			}
 			
 			// Check if the move is valid (cell is empty)
 			if (_board.GetBoardData().board[pMessage.move] != 0)
@@ -90,6 +117,9 @@ namespace server
 			
 			// Make the move
 			_board.MakeMove(pMessage.move, playerID);
+			
+			// Switch to the other player's turn
+			_board.GetBoardData().currentPlayerTurn = playerID == 1 ? 2 : 1;
 			
 			// Send the updated board to all clients
 			MakeMoveResult makeMoveResult = new MakeMoveResult();
@@ -119,38 +149,138 @@ namespace server
 				if (winner != 0)
 				{
 					string winnerName = _server.GetPlayerInfo(_members[winner-1]).name;
-					gameOver.winnerName = winnerName;
+					gameOver.winnerName = $"{winnerName} wins!";
 				}
 				else if (isBoardFull)
 				{
-					gameOver.winnerName = "Draw - No Winner";
+					gameOver.winnerName = "Game ended in a draw!";
 				}
 				
 				// Send game over message to all players
 				sendToAll(gameOver);
 				
-				// Send all players back to lobby
-				TcpMessageChannel[] playersToReturn = _members.ToArray();
-				foreach (TcpMessageChannel player in playersToReturn)
-				{
-					// Create notification
-					ChatMessage notification = new ChatMessage();
-					notification.sender = "[Server]";
-					notification.message = $"Game over! {gameOver.winnerName}";
-					
-					// Remove from game room
-					removeMember(player);
-					
-					// Add to lobby
-					_server.GetLobbyRoom().AddMember(player);
-					
-					// Send notification to the player
-					player.SendMessage(notification);
-				}
-				
-				// Reset game state
-				IsGameInPlay = false;
+				// Schedule return to lobby
+				ScheduleReturnToLobby(5000); // 5 seconds
 			}
 		}
+
+		private void handleConcedeGameRequest(TcpMessageChannel pSender)
+		{
+			if (!IsGameInPlay) return;
+			
+			// Determine which player conceded
+			int playerIndex = indexOfMember(pSender) + 1;
+			int winnerIndex = playerIndex == 1 ? 2 : 1;
+			
+			// Find the winner
+			string winnerName = "Unknown";
+			if (_members.Count >= winnerIndex)
+			{
+				try
+				{
+					winnerName = _server.GetPlayerInfo(_members[winnerIndex-1]).name;
+				}
+				catch {}
+			}
+			
+			// Send game over message
+			GameOverMessage gameOver = new GameOverMessage();
+			gameOver.winnerName = $"{winnerName} wins! {_server.GetPlayerInfo(pSender).name} conceded.";
+			sendToAll(gameOver);
+			
+			// Schedule return to lobby
+			ScheduleReturnToLobby(5000); // 5 seconds
+		}
+
+		protected override void removeMember(TcpMessageChannel pMember)
+		{
+			// Store player info before removing
+			string playerName = "";
+			try {
+				PlayerInfo info = _server.GetPlayerInfo(pMember);
+				if (info != null) playerName = info.name;
+			} catch {}
+			
+			base.removeMember(pMember);
+			
+			// If game is still active and a player left, notify remaining player
+			if (IsGameInPlay && !string.IsNullOrEmpty(playerName))
+			{
+				HandlePlayerDisconnection();
+			}
+		}
+
+		private void HandlePlayerDisconnection()
+		{
+			if (!IsGameInPlay) return;
+			
+			// If there are still players in the game
+			if (_members.Count > 0)
+			{
+				// Get the disconnected player's info
+				string disconnectedPlayerName = "The other player";
+				if (_members.Count == 1)
+				{
+					// We need to determine who disconnected
+					int remainingPlayerIndex = indexOfMember(_members[0]) + 1;
+					disconnectedPlayerName = remainingPlayerIndex == 1 ? 
+						_server.GetPlayerInfo(_members[0]).name : // Player 2 disconnected
+						_server.GetPlayerInfo(_members[0]).name;  // Player 1 disconnected
+				}
+				
+				// Notify remaining players
+				PlayerDisconnectedMessage msg = new PlayerDisconnectedMessage();
+				msg.playerName = disconnectedPlayerName;
+				sendToAll(msg);
+				
+				// Schedule return to lobby
+				ScheduleReturnToLobby(5000); // 5 seconds
+			}
+			else
+			{
+				// No players left, end the game immediately
+				EndGame("Game ended - all players disconnected");
+			}
+		}
+
+		private void ScheduleReturnToLobby(int delayMs)
+		{
+			// Simple implementation with a timer thread
+			new System.Threading.Timer((_) => {
+				ReturnPlayersToLobby();
+			}, null, delayMs, System.Threading.Timeout.Infinite);
+		}
+
+		private void ReturnPlayersToLobby()
+		{
+			if (!IsGameInPlay) return;
+			
+			TcpMessageChannel[] players = _members.ToArray();
+			
+			foreach (TcpMessageChannel player in players)
+			{
+				try
+				{
+					removeMember(player);
+					_server.GetLobbyRoom().AddMember(player);
+				}
+				catch (Exception e)
+				{
+					Log.LogInfo("Error returning player to lobby: " + e.Message, this);
+				}
+			}
+			
+			IsGameInPlay = false;
+		}
+
+		private void EndGame(string message)
+		{
+			IsGameInPlay = false;
+			_playerReturnedToLobby.Clear();
+			
+			// Log game ending
+			Log.LogInfo(message, this);
+		}
+
 	}
 }

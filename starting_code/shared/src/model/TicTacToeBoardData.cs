@@ -14,6 +14,8 @@ namespace shared
 		//might be that for your game, a 2d array is actually better
 		public int[] board = new int[9] {0,0,0,0,0,0,0,0,0};
 
+		public int currentPlayerTurn = 1;
+
 		/**
 		 * Returns who has won.
 		 * 
@@ -50,11 +52,13 @@ namespace shared
 		public override void Serialize(Packet pPacket)
 		{
 			for (int i = 0; i < board.Length; i++) pPacket.Write(board[i]);
+			pPacket.Write(currentPlayerTurn);
 		}
 
 		public override void Deserialize(Packet pPacket)
 		{
 			for (int i = 0; i < board.Length; i++) board[i] = pPacket.ReadInt();
+			currentPlayerTurn = pPacket.ReadInt();
 		}
 
 		public override string ToString()

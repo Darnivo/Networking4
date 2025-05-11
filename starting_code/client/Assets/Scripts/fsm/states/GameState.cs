@@ -1,4 +1,5 @@
 ﻿using shared;
+using UnityEngine;
 
 /**
  * This is where we 'play' a game.
@@ -11,45 +12,96 @@ public class GameState : ApplicationStateWithView<GameView>
     private int player1MoveCount = 0;
     private int player2MoveCount = 0;
 
+    private string player1Name;
+    private string player2Name;
+    private float returnToLobbyTimer = -1;
+    private bool isGameOver = false;
+
     public override void EnterState()
     {
         base.EnterState();
         
+        // Reset game state
+        player1Name = "";
+        player2Name = "";
+        player1MoveCount = 0;
+        player2MoveCount = 0;
+        isGameOver = false;
+        returnToLobbyTimer = -1;
+        
+        // Reset UI
+        view.ResetBoard();
+        view.gameStatus.text = "Waiting for game to start...";
+        
+        // Setup event handlers
         view.gameBoard.OnCellClicked += _onCellClicked;
+        view.btnConcede.onClick.AddListener(ConcedeGame);
     }
 
     private void _onCellClicked(int pCellIndex)
     {
-        MakeMoveRequest makeMoveRequest = new MakeMoveRequest();
-        makeMoveRequest.move = pCellIndex;
+        // Only send move if the game is active
+        if (!isGameOver)
+        {
+            MakeMoveRequest makeMoveRequest = new MakeMoveRequest();
+            makeMoveRequest.move = pCellIndex;
+            fsm.channel.SendMessage(makeMoveRequest);
+        }
+    }
 
-        fsm.channel.SendMessage(makeMoveRequest);
+    private void ConcedeGame()
+    {
+        if (!isGameOver)
+        {
+            // Create a concede message
+            ConcedeGameRequest concedeRequest = new ConcedeGameRequest();
+            fsm.channel.SendMessage(concedeRequest);
+        }
     }
 
     public override void ExitState()
     {
         base.ExitState();
         view.gameBoard.OnCellClicked -= _onCellClicked;
+        view.btnConcede.onClick.RemoveAllListeners();
     }
 
     private void Update()
     {
         receiveAndProcessNetworkMessages();
+        
+        // Handle return to lobby timer
+        if (returnToLobbyTimer > 0)
+        {
+            returnToLobbyTimer -= Time.deltaTime;
+            // Update the text with remaining time
+            int secondsLeft = Mathf.CeilToInt(returnToLobbyTimer);
+            view.gameStatus.text = view.gameStatus.text.Split(',')[0] + $", returning to lobby in {secondsLeft} seconds...";
+            
+            if (returnToLobbyTimer <= 0)
+            {
+                // Timer expired, we can go back to lobby now
+                returnToLobbyTimer = -1;
+            }
+        }
     }
 
     protected override void handleNetworkMessage(ASerializable pMessage)
     {
-        if (pMessage is HeartbeatMessage)
-        {
-            HeartbeatResponse response = new HeartbeatResponse();
-            fsm.channel.SendMessage(response);
-        }
-        else if (pMessage is StartGameMessage)
+        if (pMessage is StartGameMessage)
         {
             StartGameMessage startMsg = pMessage as StartGameMessage;
+            // Store player names
+            player1Name = startMsg.player1Name;
+            player2Name = startMsg.player2Name;
+            
             // Display player names
-            view.playerLabel1.text = $"Player 1: {startMsg.player1Name}";
-            view.playerLabel2.text = $"Player 2: {startMsg.player2Name}";
+            view.playerLabel1.text = $"Player 1: {player1Name}";
+            view.playerLabel2.text = $"Player 2: {player2Name}";
+            
+            // Reset the board and show initial player's turn
+            view.ResetBoard();
+            view.gameStatus.text = $"{player1Name}'s turn";
         }
         else if (pMessage is MakeMoveResult)
         {
@@ -58,7 +110,20 @@ public class GameState : ApplicationStateWithView<GameView>
         else if (pMessage is GameOverMessage)
         {
             GameOverMessage gameOver = pMessage as GameOverMessage;
-            // Game is over, we'll get a RoomJoinedEvent to move back to lobby
+            isGameOver = true;
+            
+            // Display game over message and start timer
+            view.gameStatus.text = gameOver.winnerName;
+            returnToLobbyTimer = 5.0f; // 5 seconds before returning to lobby
+        }
+        else if (pMessage is PlayerDisconnectedMessage)
+        {
+            PlayerDisconnectedMessage disconnectMsg = pMessage as PlayerDisconnectedMessage;
+            isGameOver = true;
+            
+            // Display disconnection message and start timer
+            view.gameStatus.text = $"{disconnectMsg.playerName} left the game";
+            returnToLobbyTimer = 5.0f; // 5 seconds before returning to lobby
         }
         else if (pMessage is RoomJoinedEvent)
         {
@@ -74,17 +139,21 @@ public class GameState : ApplicationStateWithView<GameView>
     {
         view.gameBoard.SetBoardData(pMakeMoveResult.boardData);
 
-        //some label display
+        // Update the turn status
+        int nextPlayer = pMakeMoveResult.boardData.currentPlayerTurn;
+        string currentPlayerName = nextPlayer == 1 ? player1Name : player2Name;
+        view.gameStatus.text = $"{currentPlayerName}'s turn";
+
+        // Update move count displays
         if (pMakeMoveResult.whoMadeTheMove == 1)
         {
             player1MoveCount++;
-            view.playerLabel1.text = $"Player 1 (Movecount: {player1MoveCount})";
+            view.playerLabel1.text = $"Player 1: {player1Name} (Moves: {player1MoveCount})";
         }
-        if (pMakeMoveResult.whoMadeTheMove == 2)
+        else if (pMakeMoveResult.whoMadeTheMove == 2)
         {
             player2MoveCount++;
-            view.playerLabel2.text = $"Player 2 (Movecount: {player2MoveCount})";
+            view.playerLabel2.text = $"Player 2: {player2Name} (Moves: {player2MoveCount})";
         }
-
     }
 }
