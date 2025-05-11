@@ -28,6 +28,9 @@ namespace shared {
         //quick cache thingy to avoid reserialization of objects when you have a lot of clients (only applies to the serverside)
         private static ASerializable _lastSerializedMessage = null;
         private static byte[] _lastSerializedBytes = null;
+        
+        // Last time we successfully sent or received data - used for detecting stale connections
+        private DateTime _lastActivity = DateTime.Now;
 
         /**
          * Creates a TcpMessageChannel based on an existing (and connected) TcpClient.
@@ -40,6 +43,7 @@ namespace shared {
             _client = pTcpClient;
             _stream = _client.GetStream();
             _remoteEndPoint = _client.Client.RemoteEndPoint as IPEndPoint;
+            _lastActivity = DateTime.Now;
         }
 
         /**
@@ -68,6 +72,7 @@ namespace shared {
                 _stream = _client.GetStream();
                 _remoteEndPoint = _client.Client.RemoteEndPoint as IPEndPoint;
                 _errors.Clear();
+                _lastActivity = DateTime.Now;
                 Log.LogInfo("Connected.", this, ConsoleColor.Blue);
                 return true;
             }
@@ -96,14 +101,28 @@ namespace shared {
             try
             {
                 //grab the required bytes from either the packet or the cache
+                byte[] bytesToSend;
+                
                 if (_lastSerializedMessage != pMessage)
                 {
                     Packet outPacket = new Packet();
                     outPacket.Write(pMessage);
                     _lastSerializedBytes = outPacket.GetBytes();
+                    _lastSerializedMessage = pMessage;
+                }
+                
+                bytesToSend = _lastSerializedBytes;
+
+                // Check if socket is still connected before attempting to write
+                if (!IsSocketConnected())
+                {
+                    throw new Exception("Socket disconnected before sending");
                 }
 
-                StreamUtil.Write(_stream, _lastSerializedBytes);
+                StreamUtil.Write(_stream, bytesToSend);
+                
+                // Update activity timestamp
+                _lastActivity = DateTime.Now;
             }
             catch (Exception e)
             {
@@ -139,11 +158,20 @@ namespace shared {
                 Log.PushForegroundColor(ConsoleColor.Yellow);
                 Log.LogInfo("Receiving message...", this);
                 
+                // Check if socket is still connected before attempting to read
+                if (!IsSocketConnected())
+                {
+                    throw new Exception("Socket disconnected before receiving");
+                }
+                
                 byte[] inBytes = StreamUtil.Read(_stream);
                 Packet inPacket = new Packet(inBytes);
                 ASerializable inObject = inPacket.ReadObject();
                 Log.LogInfo("Received " + inObject, this);
                 Log.PopForegroundColor();
+                
+                // Update activity timestamp
+                _lastActivity = DateTime.Now;
 
                 return inObject;
             }
@@ -160,7 +188,7 @@ namespace shared {
         public bool Connected 
         {
             get {
-                return !HasErrors() && _client != null && _client.Connected;
+                return !HasErrors() && _client != null && _client.Connected && IsSocketConnected();
             }
         }
 
@@ -183,13 +211,23 @@ namespace shared {
 
         public IPEndPoint GetRemoteEndPoint() { return _remoteEndPoint; }
 
-        public void Close ()
+        public void Close()
         {
             try
             {
-                _client.Close();
-            } catch {
-            }
+                if (_client != null && _client.Connected)
+                {
+                    try
+                    {
+                        // Try to shutdown socket gracefully
+                        _client.Client.Shutdown(SocketShutdown.Both);
+                    }
+                    catch {}
+                    
+                    _client.Close();
+                }
+            } 
+            catch {}
             finally
             {
                 _client = null;
@@ -202,31 +240,23 @@ namespace shared {
             {
                 if (_client == null || !_client.Connected)
                     return false;
-
-                // Only use Poll if we haven't received any messages recently
-                // This makes the check less aggressive during active communication
-                if (_client.Client.Poll(0, SelectMode.SelectRead))
+                    
+                // Check for stale connections (no activity for too long)
+                if ((DateTime.Now - _lastActivity).TotalSeconds > 15)
                 {
-                    // Don't use Receive which can be problematic during transitions
-                    // Instead, check if there's data available or socket is still valid
-                    if (_client.Available == 0)
+                    // If no activity for 15 seconds, check if socket is still responsive
+                    if (!IsSocketAlive())
                     {
-                        // Additional check - try to get socket option
-                        try
-                        {
-                            byte[] optionValue = new byte[4];
-                            _client.Client.GetSocketOption(SocketOptionLevel.Socket, SocketOptionName.Error, optionValue);
-                            if (BitConverter.ToInt32(optionValue, 0) != 0)
-                            {
-                                return false;
-                            }
-                        }
-                        catch
-                        {
-                            return false; // Socket error
-                        }
+                        return false;
                     }
                 }
+                
+                // Additional TCP connection check (most reliable)
+                if (!IsSocketConnected())
+                {
+                    return false;
+                }
+
                 return true;
             }
             catch
@@ -234,6 +264,55 @@ namespace shared {
                 return false;
             }
         }
-
+        
+        private bool IsSocketConnected()
+        {
+            try
+            {
+                if (_client == null || _client.Client == null)
+                    return false;
+                    
+                // This is the most reliable check, but can be expensive
+                // Check for socket state without reading data
+                return !(_client.Client.Poll(1, SelectMode.SelectRead) && _client.Client.Available == 0);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+        
+        private bool IsSocketAlive()
+        {
+            try
+            {
+                if (_client == null || _client.Client == null)
+                    return false;
+                    
+                // Try to get socket options - will throw if socket is closed
+                byte[] optionValue = new byte[4];
+                _client.Client.GetSocketOption(SocketOptionLevel.Socket, SocketOptionName.Error, optionValue);
+                
+                // Socket option value should be 0 for a healthy socket
+                int errorCode = BitConverter.ToInt32(optionValue, 0);
+                if (errorCode != 0)
+                {
+                    return false;
+                }
+                
+                // Try sending a zero-length packet as a ping
+                try {
+                    _client.Client.Send(new byte[0], 0, SocketFlags.None);
+                    return true;
+                }
+                catch {
+                    return false;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
     }
 }

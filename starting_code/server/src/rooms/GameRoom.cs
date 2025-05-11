@@ -8,9 +8,6 @@ namespace server
 	 * 
 	 * The 'Game' is very simple at the moment:
 	 *	- all client moves are broadcasted to all clients
-	 *	
-	 * The game has no end yet (that is up to you), in other words:
-	 * all players that are added to this room, stay in here indefinitely.
 	 */
 	class GameRoom : Room
 	{
@@ -23,6 +20,12 @@ namespace server
 		
 		// Track if players are in process of returning to lobby
 		private bool _returningPlayersToLobby = false;
+		
+		// Last time we did an aggressive connection check
+		private DateTime _lastConnectionCheck = DateTime.Now;
+		
+		// Tracks player names for more informative disconnect messages
+		private Dictionary<TcpMessageChannel, string> _playerNames = new Dictionary<TcpMessageChannel, string>();
 
 		public GameRoom(TCPGameServer pOwner) : base(pOwner)
 		{
@@ -35,6 +38,28 @@ namespace server
 			IsGameInPlay = true;
 			_playerReturnedToLobby.Clear();
 			_returningPlayersToLobby = false;
+			_playerNames.Clear();
+			_lastConnectionCheck = DateTime.Now;
+			
+			// Additional pre-start connection check
+			if (!pPlayer1.IsConnected() || !pPlayer2.IsConnected())
+			{
+				Log.LogInfo("One of the players disconnected before game start", this);
+				if (!pPlayer1.IsConnected()) _server.GetLobbyRoom().AddMember(pPlayer2);
+				if (!pPlayer2.IsConnected()) _server.GetLobbyRoom().AddMember(pPlayer1);
+				IsGameInPlay = false;
+				return;
+			}
+			
+			// Store player names for better disconnect handling
+			try {
+				_playerNames[pPlayer1] = _server.GetPlayerInfo(pPlayer1).name;
+				_playerNames[pPlayer2] = _server.GetPlayerInfo(pPlayer2).name;
+			} catch {
+				// Fallback if player info can't be retrieved
+				_playerNames[pPlayer1] = "Player 1";
+				_playerNames[pPlayer2] = "Player 2";
+			}
 			
 			addMember(pPlayer1);
 			addMember(pPlayer2);
@@ -48,9 +73,12 @@ namespace server
 
 			// Send start game message with player names
 			StartGameMessage startMsg = new StartGameMessage();
-			startMsg.player1Name = _server.GetPlayerInfo(pPlayer1).name;
-			startMsg.player2Name = _server.GetPlayerInfo(pPlayer2).name;
+			startMsg.player1Name = _playerNames[pPlayer1];
+			startMsg.player2Name = _playerNames[pPlayer2];
 			sendToAll(startMsg);
+			
+			// Send immediate heartbeats to both clients to establish connection
+			sendImmediateHeartbeats();
 		}
 
 		protected override void addMember(TcpMessageChannel pMember)
@@ -65,10 +93,15 @@ namespace server
 
 		public override void Update()
 		{
-			// Check for disconnections more aggressively when a game is in play
-			if (IsGameInPlay)
+			// Do frequent active connection checks during a game
+			if (IsGameInPlay && _members.Count > 0)
 			{
-				CheckConnections();
+				// Check every 1 second while game is in play
+				if ((DateTime.Now - _lastConnectionCheck).TotalSeconds >= 1)
+				{
+					_lastConnectionCheck = DateTime.Now;
+					PerformActiveConnectionCheck();
+				}
 			}
 			
 			// Don't process more updates if we're in the process of returning players to lobby
@@ -95,6 +128,92 @@ namespace server
 				Log.LogInfo("Game ended, all players returned to lobby", this);
 			}
 		}
+		
+		private void PerformActiveConnectionCheck()
+		{
+			for (int i = _members.Count - 1; i >= 0; i--)
+			{
+				if (i >= _members.Count) continue;
+				
+				TcpMessageChannel member = _members[i];
+				
+				try
+				{
+					// First check if connection is still alive
+					if (!member.IsConnected())
+					{
+						Log.LogInfo("Active check found disconnected client in game", this);
+						PlayerDisconnectedFromGame(member);
+						continue;
+					}
+					
+					// Then try to send a ping with an immediate response expected
+					HeartbeatMessage ping = new HeartbeatMessage();
+					try
+					{
+						member.SendMessage(ping);
+						PlayerInfo playerInfo = _server.GetPlayerInfo(member);
+						playerInfo.heartbeatPending = true;
+						
+						// If the last heartbeat was sent more than 3 seconds ago with no response,
+						// consider the client disconnected
+						if ((DateTime.Now - playerInfo.lastHeartbeatTime).TotalSeconds > 3)
+						{
+							Log.LogInfo("Client unresponsive to heartbeat - marking as disconnected", this);
+							PlayerDisconnectedFromGame(member);
+						}
+					}
+					catch (Exception e)
+					{
+						Log.LogInfo("Exception sending heartbeat: " + e.Message, this);
+						PlayerDisconnectedFromGame(member);
+					}
+				}
+				catch (Exception e)
+				{
+					Log.LogInfo("Exception in active connection check: " + e.Message, this);
+					try { removeAndCloseMember(member); } catch {}
+				}
+			}
+		}
+		
+		private void PlayerDisconnectedFromGame(TcpMessageChannel member)
+		{
+			if (!IsGameInPlay) return;
+			
+			string disconnectedName = "Unknown player";
+			if (_playerNames.ContainsKey(member))
+			{
+				disconnectedName = _playerNames[member];
+			}
+			
+			Log.LogInfo($"Player {disconnectedName} disconnected from game", this);
+			
+			// Remove the player immediately
+			removeAndCloseMember(member);
+			
+			// Notify remaining players and end the game
+			HandlePlayerDisconnection();
+		}
+		
+		private void sendImmediateHeartbeats()
+		{
+			foreach (TcpMessageChannel member in _members)
+			{
+				try
+				{
+					HeartbeatMessage heartbeat = new HeartbeatMessage();
+					member.SendMessage(heartbeat);
+					PlayerInfo playerInfo = _server.GetPlayerInfo(member);
+					playerInfo.lastHeartbeatTime = DateTime.Now;
+					playerInfo.heartbeatPending = true;
+				}
+				catch (Exception e)
+				{
+					Log.LogInfo("Failed to send initial heartbeat: " + e.Message, this);
+				}
+			}
+		}
 
 		protected override void handleNetworkMessage(ASerializable pMessage, TcpMessageChannel pSender)
 		{
@@ -108,6 +227,7 @@ namespace server
 			}
 			else if (pMessage is HeartbeatResponse)
 			{
+				// Update heartbeat status when a response is received
 				PlayerInfo playerInfo = _server.GetPlayerInfo(pSender);
 				playerInfo.lastHeartbeatTime = DateTime.Now;
 				playerInfo.heartbeatPending = false;
@@ -170,7 +290,14 @@ namespace server
 				
 				if (winner != 0)
 				{
-					string winnerName = _server.GetPlayerInfo(_members[winner-1]).name;
+					int winnerIdx = winner - 1;
+					string winnerName = "Unknown";
+					if (winnerIdx < _members.Count)
+					{
+						try {
+							winnerName = _playerNames[_members[winnerIdx]];
+						} catch {}
+					}
 					gameOver.winnerName = $"{winnerName} wins!";
 				}
 				else if (isBoardFull)
@@ -196,18 +323,20 @@ namespace server
 			
 			// Find the winner
 			string winnerName = "Unknown";
-			if (_members.Count >= winnerIndex)
-			{
-				try
+			string concederName = "Unknown";
+			
+			try {
+				concederName = _playerNames[pSender];
+				
+				if (_members.Count >= winnerIndex && winnerIndex > 0)
 				{
-					winnerName = _server.GetPlayerInfo(_members[winnerIndex-1]).name;
+					winnerName = _playerNames[_members[winnerIndex-1]];
 				}
-				catch {}
-			}
+			} catch {}
 			
 			// Send game over message
 			GameOverMessage gameOver = new GameOverMessage();
-			gameOver.winnerName = $"{winnerName} wins! {_server.GetPlayerInfo(pSender).name} conceded.";
+			gameOver.winnerName = $"{winnerName} wins! {concederName} conceded.";
 			sendToAll(gameOver);
 			
 			// Schedule return to lobby
@@ -219,8 +348,9 @@ namespace server
 			// Store player info before removing
 			string playerName = "";
 			try {
-				PlayerInfo info = _server.GetPlayerInfo(pMember);
-				if (info != null) playerName = info.name;
+				if (_playerNames.ContainsKey(pMember)) {
+					playerName = _playerNames[pMember];
+				}
 			} catch {}
 			
 			base.removeMember(pMember);
@@ -245,13 +375,28 @@ namespace server
 				// Get the disconnected player's info
 				string disconnectedPlayerName = "The other player";
 				
+				// Find which player disconnected by comparing who's left
+				if (_members.Count == 1)
+				{
+					TcpMessageChannel remainingPlayer = _members[0];
+					
+					foreach (var entry in _playerNames)
+					{
+						if (entry.Key != remainingPlayer)
+						{
+							disconnectedPlayerName = entry.Value;
+							break;
+						}
+					}
+				}
+				
 				// Notify remaining players
 				PlayerDisconnectedMessage msg = new PlayerDisconnectedMessage();
 				msg.playerName = disconnectedPlayerName;
 				sendToAll(msg);
 				
-				// Schedule return to lobby
-				ScheduleReturnToLobby(5000); // 5 seconds
+				// Schedule return to lobby immediately
+				ScheduleReturnToLobby(3000); // 3 seconds (reduced from 5)
 			}
 			else
 			{
@@ -360,7 +505,7 @@ namespace server
 						if (!member.IsConnected())
 						{
 							Log.LogInfo("CheckConnections found disconnected client in game room", this);
-							removeAndCloseMember(member);
+							PlayerDisconnectedFromGame(member);
 						}
 					}
 					catch (Exception e)
